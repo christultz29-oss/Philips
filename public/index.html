@@ -515,27 +515,11 @@
 <!-- Toast container -->
 <div id="toast-container"></div>
 
-<!-- ========================================================
-     ENV INJECTION (Vercel injects via _middleware or env vars)
-     En producción Vercel reemplaza estas variables.
-     Localmente usa .env.local
-======================================================== -->
-<script>
-  window.__ENV = {
-    SUPABASE_URL: '%%SUPABASE_URL%%',
-    SUPABASE_ANON_KEY: '%%SUPABASE_ANON_KEY%%',
-  };
-</script>
-
 <script>
 // ============================================================
-// SUPABASE CLIENT INIT
+// SUPABASE CLIENT INIT — config cargada desde /api/config
 // ============================================================
-const SUPABASE_URL      = window.__ENV.SUPABASE_URL;
-const SUPABASE_ANON_KEY = window.__ENV.SUPABASE_ANON_KEY;
-const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true }
-});
+let db;
 
 // ============================================================
 // STATE
@@ -950,9 +934,22 @@ function showToast(message, type = 'success') {
 }
 
 // ============================================================
-// BOOTSTRAP
+// BOOTSTRAP — carga config desde /api/config y luego inicia
 // ============================================================
-init();
+async function bootstrap() {
+  try {
+    const res = await fetch('/api/config');
+    const cfg = await res.json();
+    db = supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true }
+    });
+  } catch (e) {
+    console.error('Error cargando config:', e);
+    return;
+  }
+  await init();
+}
+bootstrap();
 </script>
 
 <!-- Módulos adicionales -->
