@@ -2,11 +2,6 @@
   "version": 2,
   "buildCommand": "echo 'static site — no build needed'",
   "outputDirectory": "public",
-  "functions": {
-    "api/**/*.js": {
-      "runtime": "edge"
-    }
-  },
   "routes": [
     { "src": "/api/(.*)", "dest": "/api/$1" },
     { "src": "/(.*)", "dest": "/index.html" }
