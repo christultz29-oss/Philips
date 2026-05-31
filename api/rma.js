@@ -1,27 +1,20 @@
-// api/rma.js — Vercel Edge Function
-// Valida inputs en servidor antes de llegar a Supabase
-// Supabase ya tiene RLS, esta capa previene payloads malformados
-
+// api/rma.js — Vercel Serverless Function (Node.js)
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY  // service role para server-side
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// ============================================================
-// Validación de esquema (sin dependencias externas)
-// ============================================================
-const VALID_WAREHOUSES = ['MAIN', 'RFR', 'RFRB', 'SCRP'];
+const VALID_WAREHOUSES   = ['MAIN', 'RFR', 'RFRB', 'SCRP'];
 const VALID_RETURN_TYPES = ['devolucion', 'rechazo'];
-const VALID_SCOPES = ['parcial', 'completo'];
-const VALID_STATUSES = ['pending_om', 'in_process', 'closed', 'cancelled'];
+const VALID_SCOPES       = ['parcial', 'completo'];
+const VALID_STATUSES     = ['pending_om', 'in_process', 'closed', 'cancelled'];
 
 function validateRmaPayload(body) {
   const errors = [];
-
-  if (!body.client_id)      errors.push('client_id requerido');
-  if (!body.product_code)   errors.push('product_code requerido');
+  if (!body.client_id)    errors.push('client_id requerido');
+  if (!body.product_code) errors.push('product_code requerido');
   if (!body.warehouse || !VALID_WAREHOUSES.includes(body.warehouse))
     errors.push(`warehouse debe ser: ${VALID_WAREHOUSES.join(', ')}`);
   if (!body.return_type || !VALID_RETURN_TYPES.includes(body.return_type))
@@ -30,110 +23,93 @@ function validateRmaPayload(body) {
     errors.push(`return_scope debe ser: ${VALID_SCOPES.join(', ')}`);
   if (!body.quantity || body.quantity < 1 || !Number.isInteger(Number(body.quantity)))
     errors.push('quantity debe ser entero mayor a 0');
-
   return errors;
 }
 
-// ============================================================
-// Handler principal
-// ============================================================
-export const config = { runtime: 'edge' };
-
-export default async function handler(req) {
-  const url = new URL(req.url);
-  const method = req.method;
-
+export default async function handler(req, res) {
   // CORS
-  const headers = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': process.env.ALLOWED_ORIGIN || '*',
-    'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  };
+  res.setHeader('Access-Control-Allow-Origin', process.env.ALLOWED_ORIGIN || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  if (method === 'OPTIONS') return new Response(null, { status: 204, headers });
+  if (req.method === 'OPTIONS') return res.status(204).end();
 
-  // Extraer JWT del usuario para validar identidad
-  const authHeader = req.headers.get('Authorization');
+  // Auth
+  const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
-    return new Response(JSON.stringify({ error: 'No autorizado' }), { status: 401, headers });
+    return res.status(401).json({ error: 'No autorizado' });
   }
 
   const token = authHeader.slice(7);
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
   if (authError || !user) {
-    return new Response(JSON.stringify({ error: 'Token inválido' }), { status: 401, headers });
+    return res.status(401).json({ error: 'Token inválido' });
   }
 
+  const { method } = req;
+  // Extraer :id si existe — /api/rma/[id].js lo maneja Vercel automáticamente
+  // Aquí lo leemos desde query params
+  const id = req.query.id || null;
+
   try {
-    // GET /api/rma — listar
-    if (method === 'GET' && !url.pathname.includes('/api/rma/')) {
-      const params = Object.fromEntries(url.searchParams);
+    // GET /api/rma
+    if (method === 'GET' && !id) {
+      const { status, client_id, warehouse, search, page = 0, page_size = 50 } = req.query;
+      const pageNum  = parseInt(page);
+      const pageSize = Math.min(parseInt(page_size), 100);
+
       let q = supabase.from('rma_dashboard').select('*', { count: 'exact' })
-        .order('request_date', { ascending: false });
+        .order('request_date', { ascending: false })
+        .range(pageNum * pageSize, (pageNum + 1) * pageSize - 1);
 
-      if (params.status)    q = q.eq('status', params.status);
-      if (params.client_id) q = q.eq('client_id', params.client_id);
-      if (params.warehouse) q = q.eq('warehouse', params.warehouse);
-      if (params.search)    q = q.ilike('product_code', `%${params.search}%`);
-
-      const page = parseInt(params.page || '0');
-      const pageSize = Math.min(parseInt(params.page_size || '50'), 100);
-      q = q.range(page * pageSize, (page + 1) * pageSize - 1);
+      if (status)    q = q.eq('status', status);
+      if (client_id) q = q.eq('client_id', client_id);
+      if (warehouse) q = q.eq('warehouse', warehouse);
+      if (search)    q = q.ilike('product_code', `%${search}%`);
 
       const { data, error, count } = await q;
       if (error) throw error;
-      return new Response(JSON.stringify({ data, count, page, pageSize }), { status: 200, headers });
+      return res.status(200).json({ data, count, page: pageNum, pageSize });
     }
 
-    // GET /api/rma/:id — detalle
-    const idMatch = url.pathname.match(/\/api\/rma\/([^/]+)$/);
-    if (method === 'GET' && idMatch) {
+    // GET /api/rma?id=:id
+    if (method === 'GET' && id) {
       const { data, error } = await supabase
-        .from('rma_dashboard').select('*').eq('id', idMatch[1]).single();
+        .from('rma_dashboard').select('*').eq('id', id).single();
       if (error) throw error;
-      return new Response(JSON.stringify({ data }), { status: 200, headers });
+      return res.status(200).json({ data });
     }
 
-    // POST /api/rma — crear
+    // POST /api/rma
     if (method === 'POST') {
-      const body = await req.json();
+      const body = req.body;
       const errors = validateRmaPayload(body);
-      if (errors.length) {
-        return new Response(JSON.stringify({ error: errors.join('; ') }), { status: 400, headers });
-      }
+      if (errors.length) return res.status(400).json({ error: errors.join('; ') });
 
-      const payload = {
-        ...body,
-        requester_id: user.id,
-        status: 'pending_om',
-      };
-      const { data, error } = await supabase.from('rma_requests').insert(payload).select().single();
+      const { data, error } = await supabase
+        .from('rma_requests')
+        .insert({ ...body, requester_id: user.id, status: 'pending_om' })
+        .select().single();
       if (error) throw error;
-      return new Response(JSON.stringify({ data }), { status: 201, headers });
+      return res.status(201).json({ data });
     }
 
-    // PATCH /api/rma/:id — actualizar
-    const patchMatch = url.pathname.match(/\/api\/rma\/([^/]+)$/);
-    if (method === 'PATCH' && patchMatch) {
-      const body = await req.json();
-      // Validar status si viene
+    // PATCH /api/rma?id=:id
+    if (method === 'PATCH' && id) {
+      const body = req.body;
       if (body.status && !VALID_STATUSES.includes(body.status)) {
-        return new Response(JSON.stringify({ error: 'Status inválido' }), { status: 400, headers });
+        return res.status(400).json({ error: 'Status inválido' });
       }
       const { data, error } = await supabase
-        .from('rma_requests').update(body).eq('id', patchMatch[1]).select().single();
+        .from('rma_requests').update(body).eq('id', id).select().single();
       if (error) throw error;
-      return new Response(JSON.stringify({ data }), { status: 200, headers });
+      return res.status(200).json({ data });
     }
 
-    return new Response(JSON.stringify({ error: 'Ruta no encontrada' }), { status: 404, headers });
+    return res.status(404).json({ error: 'Ruta no encontrada' });
 
   } catch (err) {
     console.error('API Error:', err);
-    return new Response(
-      JSON.stringify({ error: err.message || 'Error interno del servidor' }),
-      { status: 500, headers }
-    );
+    return res.status(500).json({ error: err.message || 'Error interno del servidor' });
   }
 }
