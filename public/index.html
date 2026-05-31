@@ -517,9 +517,13 @@
 
 <script>
 // ============================================================
-// SUPABASE CLIENT INIT — config cargada desde /api/config
+// SUPABASE CLIENT INIT
 // ============================================================
-let db;
+const db = supabase.createClient(
+  'https://bwluicrpesohyrriygpd.supabase.co',
+  'sb_publishable_By4xhHDAxmFWFdHRPoGq7w_qPF-tKAc',
+  { auth: { persistSession: true, autoRefreshToken: true } }
+);
 
 // ============================================================
 // STATE
@@ -934,22 +938,9 @@ function showToast(message, type = 'success') {
 }
 
 // ============================================================
-// BOOTSTRAP — carga config desde /api/config y luego inicia
+// BOOTSTRAP
 // ============================================================
-async function bootstrap() {
-  try {
-    const res = await fetch('/api/config');
-    const cfg = await res.json();
-    db = supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
-      auth: { persistSession: true, autoRefreshToken: true }
-    });
-  } catch (e) {
-    console.error('Error cargando config:', e);
-    return;
-  }
-  await init();
-}
-bootstrap();
+init();
 </script>
 
 <!-- Módulos adicionales -->
