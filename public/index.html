@@ -1,1755 +1,1295 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-  <meta name="description" content="RMA Tracker — Gestión de devoluciones México">
-  <title>RMA Tracker MX</title>
-
-  <!-- SheetJS (Excel parsing) -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <meta name="description" content="Philips Back Office WMS Dashboard">
+  <title>Philips BO WMS</title>
 
   <!-- Supabase SDK -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 
-  <style>
-    /* ========================================================
-       DESIGN TOKENS
-    ======================================================== */
-    :root {
-      --c-bg:       #f9f9f8;
-      --c-surface:  #ffffff;
-      --c-border:   rgba(0,0,0,0.10);
-      --c-border2:  rgba(0,0,0,0.18);
-      --c-text:     #1a1a18;
-      --c-muted:    #6b6b67;
-      --c-hint:     #9b9b96;
-      --c-brand:    #185FA5;
-      --c-brand-bg: #E6F1FB;
-      --c-success:  #3B6D11;
-      --c-success-bg: #EAF3DE;
-      --c-warn:     #854F0B;
-      --c-warn-bg:  #FAEEDA;
-      --c-danger:   #A32D2D;
-      --c-danger-bg:#FCEBEB;
-      --c-purple:   #534AB7;
-      --c-purple-bg:#EEEDFE;
-      --radius:     8px;
-      --radius-lg:  12px;
-      --shadow:     0 1px 3px rgba(0,0,0,0.08);
-    }
-
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --c-bg:       #18181a;
-        --c-surface:  #222224;
-        --c-border:   rgba(255,255,255,0.10);
-        --c-border2:  rgba(255,255,255,0.18);
-        --c-text:     #e8e8e4;
-        --c-muted:    #9b9b96;
-        --c-hint:     #6b6b67;
-        --c-brand:    #85B7EB;
-        --c-brand-bg: #0C447C;
-        --c-success:  #97C459;
-        --c-success-bg: #27500A;
-        --c-warn:     #EF9F27;
-        --c-warn-bg:  #633806;
-        --c-danger:   #F09595;
-        --c-danger-bg:#791F1F;
-        --c-purple:   #AFA9EC;
-        --c-purple-bg:#3C3489;
-      }
-    }
-
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--c-bg); color: var(--c-text); font-size: 14px; line-height: 1.5; }
-
-    /* ========================================================
-       LAYOUT
-    ======================================================== */
-    #app { display: none; min-height: 100vh; }
-    #app.visible { display: flex; flex-direction: column; }
-
-    .topbar {
-      position: sticky; top: 0; z-index: 100;
-      display: flex; align-items: center; gap: 12px;
-      padding: 0 20px; height: 52px;
-      background: var(--c-surface);
-      border-bottom: 0.5px solid var(--c-border);
-    }
-    .topbar-logo { font-weight: 600; font-size: 15px; color: var(--c-text); letter-spacing: -0.3px; }
-    .topbar-logo span { color: var(--c-brand); }
-    .topbar-spacer { flex: 1; }
-    .topbar-user { font-size: 12px; color: var(--c-muted); }
-    .btn-signout { font-size: 12px; color: var(--c-muted); background: none; border: none; cursor: pointer; padding: 4px 8px; border-radius: var(--radius); }
-    .btn-signout:hover { background: var(--c-bg); }
-
-    .main { display: flex; flex: 1; overflow: hidden; }
-
-    .sidebar {
-      width: 200px; flex-shrink: 0;
-      background: var(--c-surface);
-      border-right: 0.5px solid var(--c-border);
-      padding: 16px 8px;
-      display: flex; flex-direction: column; gap: 2px;
-    }
-    .nav-item {
-      display: flex; align-items: center; gap: 8px;
-      padding: 8px 12px; border-radius: var(--radius);
-      font-size: 13px; color: var(--c-muted); cursor: pointer;
-      border: none; background: none; width: 100%; text-align: left;
-      transition: background 0.1s;
-    }
-    .nav-item:hover { background: var(--c-bg); color: var(--c-text); }
-    .nav-item.active { background: var(--c-brand-bg); color: var(--c-brand); font-weight: 500; }
-
-    .content { flex: 1; overflow-y: auto; padding: 24px; }
-
-    /* ========================================================
-       PANELS
-    ======================================================== */
-    .panel { display: none; }
-    .panel.active { display: block; }
-
-    /* ========================================================
-       KPI CARDS
-    ======================================================== */
-    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 24px; }
-    .kpi-card {
-      background: var(--c-surface); border: 0.5px solid var(--c-border);
-      border-radius: var(--radius-lg); padding: 16px;
-    }
-    .kpi-label { font-size: 11px; color: var(--c-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
-    .kpi-value { font-size: 24px; font-weight: 600; color: var(--c-text); }
-    .kpi-value.warn { color: var(--c-warn); }
-    .kpi-value.ok   { color: var(--c-success); }
-
-    /* ========================================================
-       TABLE
-    ======================================================== */
-    .table-wrap { background: var(--c-surface); border: 0.5px solid var(--c-border); border-radius: var(--radius-lg); overflow: hidden; }
-    .table-toolbar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 0.5px solid var(--c-border); flex-wrap: wrap; }
-    .table-title { font-weight: 500; font-size: 14px; flex: 1; min-width: 120px; }
-    input[type="text"], select {
-      background: var(--c-bg); border: 0.5px solid var(--c-border2);
-      border-radius: var(--radius); padding: 6px 10px;
-      font-size: 13px; color: var(--c-text);
-      outline: none; transition: border-color 0.15s;
-    }
-    input[type="text"]:focus, select:focus { border-color: var(--c-brand); }
-    input[type="text"] { width: 200px; }
-
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    thead th {
-      padding: 10px 14px; text-align: left;
-      font-weight: 500; font-size: 11px;
-      color: var(--c-muted); text-transform: uppercase; letter-spacing: 0.05em;
-      border-bottom: 0.5px solid var(--c-border); background: var(--c-bg);
-    }
-    tbody tr { border-bottom: 0.5px solid var(--c-border); cursor: pointer; transition: background 0.1s; }
-    tbody tr:hover { background: var(--c-bg); }
-    tbody tr:last-child { border-bottom: none; }
-    td { padding: 10px 14px; color: var(--c-text); vertical-align: middle; }
-    td.muted { color: var(--c-muted); }
-
-    /* ========================================================
-       BADGES
-    ======================================================== */
-    .badge {
-      display: inline-block; font-size: 11px; font-weight: 500;
-      padding: 2px 8px; border-radius: 999px;
-    }
-    .badge-pending  { background: var(--c-warn-bg);    color: var(--c-warn); }
-    .badge-process  { background: var(--c-brand-bg);   color: var(--c-brand); }
-    .badge-closed   { background: var(--c-success-bg); color: var(--c-success); }
-    .badge-cancelled{ background: var(--c-border);     color: var(--c-muted); }
-    .badge-devolucion{ background: var(--c-purple-bg); color: var(--c-purple); }
-    .badge-rechazo  { background: var(--c-danger-bg);  color: var(--c-danger); }
-
-    /* ========================================================
-       BUTTONS
-    ======================================================== */
-    .btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 7px 14px; border-radius: var(--radius);
-      font-size: 13px; font-weight: 500; cursor: pointer;
-      border: 0.5px solid var(--c-border2); background: var(--c-surface);
-      color: var(--c-text); transition: background 0.1s;
-    }
-    .btn:hover { background: var(--c-bg); }
-    .btn-primary { background: var(--c-brand); color: #fff; border-color: var(--c-brand); }
-    .btn-primary:hover { opacity: 0.9; }
-    .btn-sm { padding: 5px 10px; font-size: 12px; }
-
-    /* ========================================================
-       MODAL
-    ======================================================== */
-    .modal-backdrop {
-      position: fixed; inset: 0; z-index: 200;
-      background: rgba(0,0,0,0.45);
-      display: none; align-items: flex-start; justify-content: center;
-      padding-top: 60px;
-    }
-    .modal-backdrop.open { display: flex; }
-    .modal {
-      background: var(--c-surface); border-radius: var(--radius-lg);
-      width: 100%; max-width: 640px; max-height: 80vh;
-      overflow-y: auto; box-shadow: var(--shadow);
-      border: 0.5px solid var(--c-border);
-    }
-    .modal-header {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 16px 20px; border-bottom: 0.5px solid var(--c-border);
-      position: sticky; top: 0; background: var(--c-surface);
-    }
-    .modal-title { font-weight: 500; font-size: 15px; }
-    .modal-close { background: none; border: none; cursor: pointer; color: var(--c-muted); font-size: 20px; line-height: 1; }
-    .modal-body { padding: 20px; }
-
-    /* ========================================================
-       FORM
-    ======================================================== */
-    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-    .form-group { display: flex; flex-direction: column; gap: 5px; }
-    .form-group.full { grid-column: 1 / -1; }
-    label { font-size: 12px; font-weight: 500; color: var(--c-muted); }
-    input[type="text"], input[type="date"], input[type="number"], select, textarea {
-      width: 100%;
-    }
-    textarea { resize: vertical; min-height: 72px; font-family: inherit; }
-    .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
-
-    /* ========================================================
-       TOAST
-    ======================================================== */
-    #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 999; display: flex; flex-direction: column; gap: 8px; }
-    .toast {
-      background: var(--c-surface); border: 0.5px solid var(--c-border);
-      border-radius: var(--radius-lg); padding: 12px 16px;
-      font-size: 13px; box-shadow: var(--shadow);
-      animation: slideIn 0.2s ease; max-width: 320px;
-    }
-    .toast.success { border-left: 3px solid var(--c-success); }
-    .toast.error   { border-left: 3px solid var(--c-danger); }
-    @keyframes slideIn { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-
-    /* ========================================================
-       LOGIN
-    ======================================================== */
-    #login-screen {
-      min-height: 100vh; display: flex; align-items: center; justify-content: center;
-      background: var(--c-bg);
-    }
-    .login-card {
-      background: var(--c-surface); border: 0.5px solid var(--c-border);
-      border-radius: var(--radius-lg); padding: 32px; width: 340px;
-    }
-    .login-title { font-weight: 600; font-size: 18px; margin-bottom: 4px; }
-    .login-sub { font-size: 13px; color: var(--c-muted); margin-bottom: 24px; }
-    .login-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
-    .login-field label { font-size: 12px; font-weight: 500; color: var(--c-muted); }
-    .login-field input { width: 100%; padding: 8px 12px; }
-    .btn-login { width: 100%; padding: 9px; margin-top: 8px; }
-    .login-error { color: var(--c-danger); font-size: 12px; margin-top: 8px; }
-
-    /* ========================================================
-       EMPTY STATE
-    ======================================================== */
-    .empty { text-align: center; padding: 48px 20px; color: var(--c-muted); }
-    .empty-icon { font-size: 32px; margin-bottom: 12px; opacity: 0.4; }
-
-    /* ========================================================
-       PAGINATION
-    ======================================================== */
-    .pagination { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-top: 0.5px solid var(--c-border); font-size: 12px; color: var(--c-muted); }
-    .pagination-spacer { flex: 1; }
-
-    /* ========================================================
-       LOADING
-    ======================================================== */
-    .loading { display: flex; align-items: center; justify-content: center; padding: 40px; color: var(--c-muted); font-size: 13px; }
-  </style>
+  <!-- App styles -->
+  <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
 
-<!-- ========================================================
-     LOGIN
-======================================================== -->
+<!-- ================================================================
+     LOGIN SCREEN
+================================================================ -->
 <div id="login-screen">
   <div class="login-card">
-    <div class="login-title">RMA Tracker <span style="color:var(--c-brand)">MX</span></div>
-    <div class="login-sub">Gestión de devoluciones</div>
+    <div class="login-logo">
+      <div class="login-logo-mark">P</div>
+      <div class="login-logo-text">Philips <span>BO</span></div>
+    </div>
+    <div class="login-title">Back Office WMS</div>
+    <div class="login-sub">Sign in to access the BO team dashboard</div>
+
     <div class="login-field">
-      <label>Correo electrónico</label>
-      <input type="text" id="login-email" placeholder="tu@empresa.com" autocomplete="email">
+      <label for="login-email">Email address</label>
+      <input type="email" id="login-email" placeholder="agent@philips.com" autocomplete="email">
     </div>
     <div class="login-field">
-      <label>Contraseña</label>
-      <input type="text" id="login-password" placeholder="••••••••" autocomplete="current-password" style="-webkit-text-security: disc; text-security: disc;">
+      <label for="login-password">Password</label>
+      <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password">
     </div>
-    <button class="btn btn-primary btn-login" onclick="doLogin()">Iniciar sesión</button>
-    <div class="login-error" id="login-error" style="display:none"></div>
+
+    <button class="btn btn-primary btn-login" id="login-btn" onclick="doLogin()">Sign In</button>
+    <div class="login-error" id="login-error"></div>
   </div>
 </div>
 
-<!-- ========================================================
-     APP
-======================================================== -->
+<!-- ================================================================
+     APP SHELL
+================================================================ -->
 <div id="app">
-  <!-- Topbar -->
+
+  <!-- ---- TOP BAR ---- -->
   <div class="topbar">
-    <div class="topbar-logo">RMA <span>Tracker</span> MX</div>
+    <button class="btn btn-ghost btn-sm" style="display:none;padding:4px 8px;" onclick="toggleMobileSidebar()" id="menu-toggle">☰</button>
+
+    <div class="topbar-logo">
+      <div class="login-logo-mark" style="width:28px;height:28px;font-size:13px;">P</div>
+      Philips
+      <div class="logo-badge">BO WMS</div>
+    </div>
+
+    <div class="topbar-divider"></div>
+
+    <!-- Month picker -->
+    <div style="display:flex;align-items:center;gap:6px;">
+      <label style="font-size:11px;color:var(--text-muted);white-space:nowrap;">Period</label>
+      <input type="month" id="topbar-month" style="width:auto;padding:4px 8px;font-size:12px;">
+    </div>
+
     <div class="topbar-spacer"></div>
-    <div class="topbar-user" id="topbar-user"></div>
-    <button class="btn btn-sm" onclick="ExcelImporter.open(db)" style="font-size:12px;">Importar Excel</button>
-    <button class="btn-signout" onclick="doSignout()">Salir</button>
+
+    <!-- Country selector -->
+    <div class="topbar-country">
+      <label>Country</label>
+      <select id="country-select"></select>
+    </div>
+
+    <div class="topbar-divider"></div>
+
+    <!-- User info -->
+    <div class="topbar-user">
+      <div class="topbar-avatar" id="topbar-avatar">?</div>
+      <div>
+        <div style="font-size:12px;font-weight:500;" id="topbar-name"></div>
+        <span id="topbar-role-badge" class="badge" style="font-size:10px;"></span>
+      </div>
+    </div>
+
+    <button class="btn-signout" onclick="doSignout()">Sign out</button>
   </div>
 
-  <div class="main">
-    <!-- Sidebar -->
-    <div class="sidebar">
-      <button class="nav-item active" data-panel="dashboard" onclick="showPanel('dashboard', this)">
-        Dashboard
-      </button>
-      <button class="nav-item" data-panel="requests" onclick="showPanel('requests', this)">
-        Solicitudes
-      </button>
-      <button class="nav-item" data-panel="clients" onclick="showPanel('clients', this)">
-        Clientes
-      </button>
-      <div style="margin-top:auto; padding-top:12px; border-top:0.5px solid var(--c-border); margin-top:16px;">
-        <button class="nav-item" onclick="ExcelImporter.open(db)" style="width:100%;">
-          Importar Excel
+  <!-- ---- MAIN LAYOUT ---- -->
+  <div class="main-layout">
+
+    <!-- ---- SIDEBAR ---- -->
+    <nav class="sidebar">
+      <div class="sidebar-section">Navigation</div>
+      <div id="sidebar-nav">
+        <!-- Rendered by app.js renderNav() -->
+      </div>
+      <div class="sidebar-footer">
+        <div class="sidebar-section" style="margin-top:0;border-top:none;">Support</div>
+        <button class="nav-item btn-ghost" onclick="showToast('Contact: bo-support@philips.com','info')">
+          <span class="nav-icon">?</span>
+          <span>Help</span>
         </button>
       </div>
-    </div>
+    </nav>
 
-    <!-- Content -->
-    <div class="content">
+    <!-- ---- CONTENT AREA ---- -->
+    <main class="content">
 
-      <!-- DASHBOARD PANEL -->
-      <div class="panel active" id="panel-dashboard">
-        <div class="kpi-grid" id="kpi-grid">
-          <div class="loading">Cargando KPIs...</div>
+      <!-- ============================================================
+           PAGE: DASHBOARD
+      ============================================================ -->
+      <div class="page" id="page-dashboard">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Dashboard</div>
+            <div class="page-subtitle">Back Office KPIs & SLA monitoring</div>
+          </div>
+          <div class="page-actions">
+            <input type="month" id="dash-month" style="width:auto;padding:5px 8px;font-size:12px;" onchange="dashMonthChange()">
+            <button class="btn btn-sm" onclick="loadDashboardPage()">↺ Refresh</button>
+          </div>
         </div>
+
+        <!-- KPI Cards -->
+        <div class="kpi-grid" id="dash-kpi-grid">
+          <div class="loading-spinner"><div class="spinner"></div>Loading KPIs...</div>
+        </div>
+
+        <!-- SLA Gauge -->
+        <div class="sla-gauge-wrap">
+          <div id="dash-sla-content">
+            <div class="loading-spinner"><div class="spinner"></div>Loading SLA data...</div>
+          </div>
+        </div>
+
+        <!-- Dashboard Grid: Critical Cases + Agent Performance -->
+        <div class="dashboard-grid">
+
+          <!-- Critical Cases -->
+          <div class="section-card">
+            <div class="section-card-header">
+              <div class="section-card-title" style="display:flex;align-items:center;gap:8px;">
+                <span style="width:8px;height:8px;border-radius:50%;background:var(--sla-red);display:inline-block;"></span>
+                Critical Cases (Red SLA)
+              </div>
+              <span class="badge sla-red" style="font-size:10px;">Overdue 5+ days</span>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Module</th>
+                    <th>Case #</th>
+                    <th>Country</th>
+                    <th>Agent</th>
+                    <th>SLA</th>
+                    <th>Created</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="dash-critical-body">
+                  <tr><td colspan="7"><div class="loading-spinner"><div class="spinner"></div>Loading...</div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Agent Performance -->
+          <div class="section-card">
+            <div class="section-card-header">
+              <div class="section-card-title">Agent Performance</div>
+              <span style="font-size:11px;color:var(--text-muted);">Target: 80% SLA compliance</span>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Agent</th>
+                    <th>Country</th>
+                    <th>Total</th>
+                    <th>On Time</th>
+                    <th>Overdue</th>
+                    <th>Compliance</th>
+                    <th>Avg Age</th>
+                  </tr>
+                </thead>
+                <tbody id="dash-agent-body">
+                  <tr><td colspan="7"><div class="loading-spinner"><div class="spinner"></div>Loading...</div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ============================================================
+           PAGE: RMA CANCELLATIONS
+      ============================================================ -->
+      <div class="page" id="page-cancellations">
+        <div class="page-header">
+          <div>
+            <div class="page-title">RMA Cancellations</div>
+            <div class="page-subtitle">RMA cancellation case tracking</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-primary btn-sm" onclick="openCancNewModal()">+ New Case</button>
+          </div>
+        </div>
+
         <div class="table-wrap">
           <div class="table-toolbar">
-            <div class="table-title">Solicitudes recientes</div>
-            <button class="btn btn-sm" onclick="showPanel('requests', document.querySelector('[data-panel=requests]'))">Ver todas</button>
+            <div class="table-title">Cases</div>
+            <div class="table-filters">
+              <input type="text" id="canc-search" class="search-input" placeholder="Search case, order, RMA..." oninput="cancSearch()">
+              <select id="canc-filter-status" class="filter-select" onchange="cancFilter()">
+                <option value="">All Statuses</option>
+                <option value="open">Open</option>
+                <option value="pending">Pending</option>
+                <option value="in_progress">In Progress</option>
+                <option value="review">Under Review</option>
+                <option value="closed">Closed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+              <select id="canc-filter-sla" class="filter-select" onchange="cancFilter()">
+                <option value="">All SLA</option>
+                <option value="A_green">On Time (1-2d)</option>
+                <option value="B_yellow">At Risk (3-5d)</option>
+                <option value="C_red">Overdue (5d+)</option>
+              </select>
+              <select id="canc-filter-country" class="filter-select" onchange="cancFilter()">
+                <option value="">All Countries</option>
+                <option value="MX">Mexico</option>
+                <option value="CO">Colombia</option>
+                <option value="AR">Argentina</option>
+                <option value="CL">Chile</option>
+                <option value="PE">Peru</option>
+                <option value="BR">Brazil</option>
+              </select>
+              <input type="date" id="canc-filter-from" class="filter-select" placeholder="From" onchange="cancFilter()" style="width:auto;">
+              <input type="date" id="canc-filter-to"   class="filter-select" placeholder="To"   onchange="cancFilter()" style="width:auto;">
+            </div>
           </div>
-          <div id="recent-table-body"><div class="loading">Cargando...</div></div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Country</th>
+                  <th>Date</th>
+                  <th>Case #</th>
+                  <th>Order #</th>
+                  <th>RMA #</th>
+                  <th>Product</th>
+                  <th>Qty</th>
+                  <th>Reason</th>
+                  <th>Agent</th>
+                  <th>SLA</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="canc-table-body">
+                <tr><td colspan="12"><div class="loading-spinner"><div class="spinner"></div>Loading...</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="pagination" id="canc-pagination"></div>
         </div>
       </div>
 
-      <!-- REQUESTS PANEL -->
-      <div class="panel" id="panel-requests">
+      <!-- ============================================================
+           PAGE: CREDIT NOTES
+      ============================================================ -->
+      <div class="page" id="page-credit-notes">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Credit Notes</div>
+            <div class="page-subtitle">SAP manual credit note management</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-primary btn-sm" onclick="openCNNewModal()">+ New Credit Note</button>
+          </div>
+        </div>
+
         <div class="table-wrap">
           <div class="table-toolbar">
-            <div class="table-title">Solicitudes RMA</div>
-            <input type="text" id="search-input" placeholder="Buscar por código..." oninput="debouncedSearch()">
-            <select id="filter-status" onchange="loadRequests()">
-              <option value="">Todos los estados</option>
-              <option value="pending_om">Pendiente OM</option>
-              <option value="in_process">En proceso</option>
-              <option value="closed">Cerrado</option>
-              <option value="cancelled">Cancelado</option>
-            </select>
-            <select id="filter-warehouse" onchange="loadRequests()">
-              <option value="">Todos los almacenes</option>
-              <option value="MAIN">MAIN</option>
-              <option value="RFR">RFR</option>
-              <option value="RFRB">RFRB</option>
-              <option value="SCRP">SCRP</option>
-            </select>
-            <button class="btn btn-primary btn-sm" onclick="openCreateModal()">+ Nueva solicitud</button>
+            <div class="table-title">Credit Notes</div>
+            <div class="table-filters">
+              <input type="text" id="cn-search" class="search-input" placeholder="Search case, SAP doc..." oninput="cnSearch()">
+              <select id="cn-filter-status" class="filter-select" onchange="cnFilter()">
+                <option value="">All Statuses</option>
+                <option value="open">Open</option>
+                <option value="pending">Pending</option>
+                <option value="in_progress">In Progress</option>
+                <option value="approved">Approved</option>
+                <option value="review">Under Review</option>
+                <option value="closed">Closed</option>
+                <option value="rejected">Rejected</option>
+              </select>
+              <select id="cn-filter-sla" class="filter-select" onchange="cnFilter()">
+                <option value="">All SLA</option>
+                <option value="A_green">On Time (1-2d)</option>
+                <option value="B_yellow">At Risk (3-5d)</option>
+                <option value="C_red">Overdue (5d+)</option>
+              </select>
+              <select id="cn-filter-country" class="filter-select" onchange="cnFilter()">
+                <option value="">All Countries</option>
+                <option value="MX">Mexico</option>
+                <option value="CO">Colombia</option>
+                <option value="AR">Argentina</option>
+                <option value="CL">Chile</option>
+                <option value="PE">Peru</option>
+                <option value="BR">Brazil</option>
+              </select>
+              <input type="date" id="cn-filter-from" class="filter-select" onchange="cnFilter()" style="width:auto;">
+              <input type="date" id="cn-filter-to"   class="filter-select" onchange="cnFilter()" style="width:auto;">
+            </div>
           </div>
-          <div id="requests-table-body"><div class="loading">Cargando...</div></div>
-          <div class="pagination" id="pagination"></div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Country</th>
+                  <th>Date</th>
+                  <th>Case #</th>
+                  <th>SAP Doc</th>
+                  <th>Customer</th>
+                  <th>Note Amount</th>
+                  <th>Approved Amt</th>
+                  <th>Reason</th>
+                  <th>Agent</th>
+                  <th>SLA</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="cn-table-body">
+                <tr><td colspan="12"><div class="loading-spinner"><div class="spinner"></div>Loading...</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="pagination" id="cn-pagination"></div>
         </div>
       </div>
 
-      <!-- CLIENTS PANEL -->
-      <div class="panel" id="panel-clients">
+      <!-- ============================================================
+           PAGE: REFUNDS
+      ============================================================ -->
+      <div class="page" id="page-refunds">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Refund Requests</div>
+            <div class="page-subtitle">Waiting for refund cases</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-primary btn-sm" onclick="openRefNewModal()">+ New Request</button>
+          </div>
+        </div>
+
         <div class="table-wrap">
           <div class="table-toolbar">
-            <div class="table-title">Clientes</div>
-            <button class="btn btn-primary btn-sm" onclick="openClientModal()">+ Nuevo cliente</button>
+            <div class="table-title">Refund Requests</div>
+            <div class="table-filters">
+              <input type="text" id="ref-search" class="search-input" placeholder="Search case, order..." oninput="refSearch()">
+              <select id="ref-filter-status" class="filter-select" onchange="refFilter()">
+                <option value="">All Statuses</option>
+                <option value="open">Open</option>
+                <option value="pending">Pending</option>
+                <option value="in_progress">In Progress</option>
+                <option value="approved">Approved</option>
+                <option value="closed">Closed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+              <select id="ref-filter-sla" class="filter-select" onchange="refFilter()">
+                <option value="">All SLA</option>
+                <option value="A_green">On Time (1-2d)</option>
+                <option value="B_yellow">At Risk (3-5d)</option>
+                <option value="C_red">Overdue (5d+)</option>
+              </select>
+              <select id="ref-filter-country" class="filter-select" onchange="refFilter()">
+                <option value="">All Countries</option>
+                <option value="MX">Mexico</option>
+                <option value="CO">Colombia</option>
+                <option value="AR">Argentina</option>
+                <option value="CL">Chile</option>
+                <option value="PE">Peru</option>
+                <option value="BR">Brazil</option>
+              </select>
+              <input type="date" id="ref-filter-from" class="filter-select" onchange="refFilter()" style="width:auto;">
+              <input type="date" id="ref-filter-to"   class="filter-select" onchange="refFilter()" style="width:auto;">
+            </div>
           </div>
-          <div id="clients-table-body"><div class="loading">Cargando...</div></div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Country</th>
+                  <th>Date</th>
+                  <th>Case #</th>
+                  <th>Order #</th>
+                  <th>Product</th>
+                  <th>Amount</th>
+                  <th>Type</th>
+                  <th>Agent</th>
+                  <th>SLA</th>
+                  <th>Status</th>
+                  <th>Payment</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="ref-table-body">
+                <tr><td colspan="12"><div class="loading-spinner"><div class="spinner"></div>Loading...</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="pagination" id="ref-pagination"></div>
         </div>
       </div>
 
-    </div>
-  </div>
-</div>
+      <!-- ============================================================
+           PAGE: PAYMENT RESERVES
+      ============================================================ -->
+      <div class="page" id="page-reserves">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Payment Reserves</div>
+            <div class="page-subtitle">Payment amount reservation tracking</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-primary btn-sm" onclick="openResNewModal()">+ New Reserve</button>
+          </div>
+        </div>
 
-<!-- ========================================================
-     MODAL — Crear / Editar RMA
-======================================================== -->
-<div class="modal-backdrop" id="rma-modal">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title" id="modal-title">Nueva solicitud RMA</div>
-      <button class="modal-close" onclick="closeModal('rma-modal')">&times;</button>
-    </div>
-    <div class="modal-body">
-      <input type="hidden" id="rma-id">
-      <div class="form-grid">
-        <div class="form-group">
-          <label>Fecha de solicitud</label>
-          <input type="date" id="f-request-date">
-        </div>
-        <div class="form-group">
-          <label>Cliente</label>
-          <select id="f-client"></select>
-        </div>
-        <div class="form-group">
-          <label>Código de producto</label>
-          <input type="text" id="f-product-code" placeholder="SCF081/07">
-        </div>
-        <div class="form-group">
-          <label>Código 12NC</label>
-          <input type="text" id="f-nc-code" placeholder="884008107510">
-        </div>
-        <div class="form-group">
-          <label>PO Number</label>
-          <input type="text" id="f-po" placeholder="DEV">
-        </div>
-        <div class="form-group">
-          <label>Almacén</label>
-          <select id="f-warehouse">
-            <option value="MAIN">MAIN</option>
-            <option value="RFR">RFR</option>
-            <option value="RFRB">RFRB</option>
-            <option value="SCRP">SCRP</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Cantidad de piezas</label>
-          <input type="number" id="f-quantity" min="1" placeholder="6">
-        </div>
-        <div class="form-group">
-          <label>Factura</label>
-          <input type="text" id="f-invoice" placeholder="500115398">
-        </div>
-        <div class="form-group">
-          <label>Tipo</label>
-          <select id="f-return-type">
-            <option value="devolucion">Devolución</option>
-            <option value="rechazo">Rechazo</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Alcance</label>
-          <select id="f-scope">
-            <option value="parcial">Parcial</option>
-            <option value="completo">Completo</option>
-          </select>
-        </div>
-        <div class="form-group full">
-          <label>Motivo de devolución</label>
-          <select id="f-reason"></select>
-        </div>
-        <div class="form-group full">
-          <label>Comentarios supply</label>
-          <textarea id="f-supply-comments" placeholder="Notas del equipo supply..."></textarea>
-        </div>
-        <div class="form-group full">
-          <label>Comentarios especialista</label>
-          <textarea id="f-specialist-comments" placeholder="Comentarios del order specialist..."></textarea>
-        </div>
-        <div class="form-group">
-          <label>Número RMA</label>
-          <input type="text" id="f-rma-number" placeholder="pendiente OM">
-        </div>
-        <div class="form-group">
-          <label>Importe retornado</label>
-          <input type="number" id="f-amount" min="0" step="0.01" placeholder="0.00">
-        </div>
-        <div class="form-group">
-          <label>Estado</label>
-          <select id="f-status">
-            <option value="pending_om">Pendiente OM</option>
-            <option value="in_process">En proceso</option>
-            <option value="closed">Cerrado</option>
-            <option value="cancelled">Cancelado</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Asignado a</label>
-          <select id="f-assigned"></select>
-        </div>
-      </div>
-      <div class="form-actions">
-        <button class="btn" onclick="closeModal('rma-modal')">Cancelar</button>
-        <button class="btn btn-primary" onclick="saveRma()">Guardar</button>
-      </div>
-    </div>
-  </div>
-</div>
+        <div class="table-wrap">
+          <div class="table-toolbar">
+            <div class="table-title">Payment Reserves</div>
+            <div class="table-filters">
+              <input type="text" id="res-search" class="search-input" placeholder="Search case, order..." oninput="resSearch()">
+              <select id="res-filter-status" class="filter-select" onchange="resFilter()">
+                <option value="">All Statuses</option>
+                <option value="open">Open</option>
+                <option value="pending">Pending</option>
+                <option value="in_progress">In Progress</option>
+                <option value="approved">Approved</option>
+                <option value="closed">Closed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+              <select id="res-filter-sla" class="filter-select" onchange="resFilter()">
+                <option value="">All SLA</option>
+                <option value="A_green">On Time (1-2d)</option>
+                <option value="B_yellow">At Risk (3-5d)</option>
+                <option value="C_red">Overdue (5d+)</option>
+              </select>
+              <select id="res-filter-country" class="filter-select" onchange="resFilter()">
+                <option value="">All Countries</option>
+                <option value="MX">Mexico</option>
+                <option value="CO">Colombia</option>
+                <option value="AR">Argentina</option>
+                <option value="CL">Chile</option>
+                <option value="PE">Peru</option>
+                <option value="BR">Brazil</option>
+              </select>
+              <input type="date" id="res-filter-from" class="filter-select" onchange="resFilter()" style="width:auto;">
+              <input type="date" id="res-filter-to"   class="filter-select" onchange="resFilter()" style="width:auto;">
+            </div>
+          </div>
 
-<!-- MODAL Clientes -->
-<div class="modal-backdrop" id="client-modal">
-  <div class="modal" style="max-width:400px">
-    <div class="modal-header">
-      <div class="modal-title">Nuevo cliente</div>
-      <button class="modal-close" onclick="closeModal('client-modal')">&times;</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-group" style="margin-bottom:14px">
-        <label>Nombre del cliente</label>
-        <input type="text" id="c-name" placeholder="LA NARANJA">
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Country</th>
+                  <th>Date</th>
+                  <th>Case #</th>
+                  <th>Order #</th>
+                  <th>Customer</th>
+                  <th>Reserved</th>
+                  <th>Released</th>
+                  <th>Type</th>
+                  <th>Agent</th>
+                  <th>SLA</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="res-table-body">
+                <tr><td colspan="12"><div class="loading-spinner"><div class="spinner"></div>Loading...</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="pagination" id="res-pagination"></div>
+        </div>
       </div>
-      <div class="form-group" style="margin-bottom:14px">
-        <label>País</label>
-        <input type="text" id="c-country" value="MX">
-      </div>
-      <div class="form-actions">
-        <button class="btn" onclick="closeModal('client-modal')">Cancelar</button>
-        <button class="btn btn-primary" onclick="saveClient()">Guardar</button>
-      </div>
-    </div>
-  </div>
-</div>
 
-<!-- Toast container -->
+      <!-- ============================================================
+           PAGE: USERS (supervisor/admin only)
+      ============================================================ -->
+      <div class="page" id="page-users">
+        <div class="page-header">
+          <div>
+            <div class="page-title">User Management</div>
+            <div class="page-subtitle">Manage BO team members and roles</div>
+          </div>
+          <div class="page-actions">
+            <input type="text" id="users-search" class="search-input" placeholder="Search users..." oninput="usersSearch()">
+            <button class="btn btn-sm" onclick="fetchAndRenderUsers()">↺ Refresh</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <div class="table-toolbar">
+            <div class="table-title">Team Members</div>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name / Email</th>
+                  <th>Role</th>
+                  <th>Country</th>
+                  <th>Team</th>
+                  <th>Status</th>
+                  <th>Last Active</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="users-table-body">
+                <tr><td colspan="7"><div class="loading-spinner"><div class="spinner"></div>Loading...</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </main><!-- /content -->
+  </div><!-- /main-layout -->
+</div><!-- /app -->
+
+<!-- ================================================================
+     TOAST CONTAINER
+================================================================ -->
 <div id="toast-container"></div>
 
+<!-- ================================================================
+     MODALS — RMA CANCELLATIONS
+================================================================ -->
+
+<!-- New/Edit Case Modal -->
+<div class="modal-backdrop" id="canc-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="canc-modal-title">New RMA Cancellation Case</div>
+      </div>
+      <button class="modal-close" onclick="closeModal('canc-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="canc-form" onsubmit="return false">
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Country *</label>
+            <select id="canc-form-country">
+              <option value="">— Select —</option>
+              <option value="MX">Mexico</option>
+              <option value="CO">Colombia</option>
+              <option value="AR">Argentina</option>
+              <option value="CL">Chile</option>
+              <option value="PE">Peru</option>
+              <option value="BR">Brazil</option>
+              <option value="EC">Ecuador</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Case Date *</label>
+            <input type="date" id="canc-form-date">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Case Number *</label>
+            <input type="text" id="canc-form-case" placeholder="CASE-001">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Order Number *</label>
+            <input type="text" id="canc-form-order" placeholder="ORD-2024-001">
+          </div>
+          <div class="form-group">
+            <label class="form-label">RMA Number</label>
+            <input type="text" id="canc-form-rma" placeholder="RMA-001">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Quantity</label>
+            <input type="number" id="canc-form-qty" min="1" placeholder="1">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">Product *</label>
+            <input type="text" id="canc-form-product" placeholder="Product name or code">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">Cancellation Reason</label>
+            <input type="text" id="canc-form-reason" placeholder="Reason for cancellation">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select id="canc-form-status">
+              <option value="open">Open</option>
+              <option value="pending">Pending</option>
+              <option value="in_progress">In Progress</option>
+              <option value="review">Under Review</option>
+              <option value="closed">Closed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+          <div class="form-group full">
+            <label class="form-label">BO Comment</label>
+            <textarea id="canc-form-comment" placeholder="Back office notes..."></textarea>
+          </div>
+        </div>
+        <div class="inline-error" id="canc-form-error" style="display:none;"></div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('canc-modal')">Cancel</button>
+      <button class="btn btn-primary" id="canc-form-submit" onclick="submitCancForm()">Save Case</button>
+    </div>
+  </div>
+</div>
+
+<!-- Detail View Modal -->
+<div class="modal-backdrop" id="canc-detail-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="canc-detail-title">Case Details</div>
+      <button class="modal-close" onclick="closeModal('canc-detail-modal')">&times;</button>
+    </div>
+    <div class="modal-body" id="canc-detail-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeModal('canc-detail-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Status Update Modal -->
+<div class="modal-backdrop" id="canc-status-modal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title">Update Status</div>
+      <button class="modal-close" onclick="closeModal('canc-status-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="canc-status-id">
+      <div class="form-group" style="margin-bottom:14px;">
+        <label class="form-label">New Status</label>
+        <select id="canc-status-select">
+          <option value="open">Open</option>
+          <option value="pending">Pending</option>
+          <option value="in_progress">In Progress</option>
+          <option value="review">Under Review</option>
+          <option value="closed">Closed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Comment (optional)</label>
+        <textarea id="canc-status-comment" placeholder="Reason for status change..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('canc-status-modal')">Cancel</button>
+      <button class="btn btn-primary" id="canc-status-submit" onclick="submitCancStatus()">Update Status</button>
+    </div>
+  </div>
+</div>
+
+<!-- BO Comment Modal -->
+<div class="modal-backdrop" id="canc-comment-modal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title">Add BO Comment</div>
+      <button class="modal-close" onclick="closeModal('canc-comment-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="canc-comment-id">
+      <div class="form-group">
+        <label class="form-label">Comment</label>
+        <textarea id="canc-comment-text" placeholder="Add a back office comment..." style="min-height:100px;"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('canc-comment-modal')">Cancel</button>
+      <button class="btn btn-primary" id="canc-comment-submit" onclick="submitCancComment()">Save Comment</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================
+     MODALS — CREDIT NOTES
+================================================================ -->
+
+<!-- New Credit Note -->
+<div class="modal-backdrop" id="cn-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="cn-modal-title">New SAP Credit Note</div>
+      <button class="modal-close" onclick="closeModal('cn-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="cn-form" onsubmit="return false">
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Country *</label>
+            <select id="cn-form-country">
+              <option value="">— Select —</option>
+              <option value="MX">Mexico</option>
+              <option value="CO">Colombia</option>
+              <option value="AR">Argentina</option>
+              <option value="CL">Chile</option>
+              <option value="PE">Peru</option>
+              <option value="BR">Brazil</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Note Date *</label>
+            <input type="date" id="cn-form-date">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Case Number *</label>
+            <input type="text" id="cn-form-case" placeholder="CASE-001">
+          </div>
+          <div class="form-group">
+            <label class="form-label">SAP Document Number</label>
+            <input type="text" id="cn-form-sap" placeholder="SAP-DOC-001">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">Customer Name</label>
+            <input type="text" id="cn-form-customer" placeholder="Customer name">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Note Amount</label>
+            <input type="number" id="cn-form-amount" step="0.01" placeholder="0.00">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Approved Amount</label>
+            <input type="number" id="cn-form-approved" step="0.01" placeholder="0.00">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Currency</label>
+            <select id="cn-form-currency">
+              <option value="USD">USD</option>
+              <option value="MXN">MXN</option>
+              <option value="COP">COP</option>
+              <option value="ARS">ARS</option>
+              <option value="CLP">CLP</option>
+              <option value="PEN">PEN</option>
+              <option value="BRL">BRL</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select id="cn-form-status">
+              <option value="open">Open</option>
+              <option value="pending">Pending</option>
+              <option value="in_progress">In Progress</option>
+              <option value="approved">Approved</option>
+              <option value="review">Under Review</option>
+              <option value="closed">Closed</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </div>
+          <div class="form-group full">
+            <label class="form-label">Credit Reason</label>
+            <input type="text" id="cn-form-reason" placeholder="Reason for credit note">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">BO Comment</label>
+            <textarea id="cn-form-comment" placeholder="Back office notes..."></textarea>
+          </div>
+        </div>
+        <div class="inline-error" id="cn-form-error" style="display:none;"></div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('cn-modal')">Cancel</button>
+      <button class="btn btn-primary" id="cn-form-submit" onclick="submitCNForm()">Save Credit Note</button>
+    </div>
+  </div>
+</div>
+
+<!-- CN Detail Modal -->
+<div class="modal-backdrop" id="cn-detail-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="cn-detail-title">Credit Note Details</div>
+      <button class="modal-close" onclick="closeModal('cn-detail-modal')">&times;</button>
+    </div>
+    <div class="modal-body" id="cn-detail-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeModal('cn-detail-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- CN Status Modal -->
+<div class="modal-backdrop" id="cn-status-modal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title">Update Credit Note Status</div>
+      <button class="modal-close" onclick="closeModal('cn-status-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="cn-status-id">
+      <div class="form-group" style="margin-bottom:14px;">
+        <label class="form-label">New Status</label>
+        <select id="cn-status-select">
+          <option value="open">Open</option>
+          <option value="pending">Pending</option>
+          <option value="in_progress">In Progress</option>
+          <option value="approved">Approved</option>
+          <option value="review">Under Review</option>
+          <option value="closed">Closed</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Comment (optional)</label>
+        <textarea id="cn-status-comment" placeholder="Reason for status change..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('cn-status-modal')">Cancel</button>
+      <button class="btn btn-primary" id="cn-status-submit" onclick="submitCNStatus()">Update Status</button>
+    </div>
+  </div>
+</div>
+
+<!-- CN Comment Modal -->
+<div class="modal-backdrop" id="cn-comment-modal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title">Add BO Comment</div>
+      <button class="modal-close" onclick="closeModal('cn-comment-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="cn-comment-id">
+      <div class="form-group">
+        <label class="form-label">Comment</label>
+        <textarea id="cn-comment-text" placeholder="Add a back office comment..." style="min-height:100px;"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('cn-comment-modal')">Cancel</button>
+      <button class="btn btn-primary" id="cn-comment-submit" onclick="submitCNComment()">Save Comment</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================
+     MODALS — REFUNDS
+================================================================ -->
+
+<!-- New Refund -->
+<div class="modal-backdrop" id="ref-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="ref-modal-title">New Refund Request</div>
+      <button class="modal-close" onclick="closeModal('ref-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="ref-form" onsubmit="return false">
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Country *</label>
+            <select id="ref-form-country">
+              <option value="">— Select —</option>
+              <option value="MX">Mexico</option>
+              <option value="CO">Colombia</option>
+              <option value="AR">Argentina</option>
+              <option value="CL">Chile</option>
+              <option value="PE">Peru</option>
+              <option value="BR">Brazil</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Request Date *</label>
+            <input type="date" id="ref-form-date">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Case Number *</label>
+            <input type="text" id="ref-form-case" placeholder="CASE-001">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Order Number *</label>
+            <input type="text" id="ref-form-order" placeholder="ORD-2024-001">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">Product</label>
+            <input type="text" id="ref-form-product" placeholder="Product name or code">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Quantity</label>
+            <input type="number" id="ref-form-qty" min="1" placeholder="1">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Refund Amount</label>
+            <input type="number" id="ref-form-amount" step="0.01" placeholder="0.00">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Currency</label>
+            <select id="ref-form-currency">
+              <option value="USD">USD</option>
+              <option value="MXN">MXN</option>
+              <option value="COP">COP</option>
+              <option value="ARS">ARS</option>
+              <option value="CLP">CLP</option>
+              <option value="PEN">PEN</option>
+              <option value="BRL">BRL</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Refund Type</label>
+            <select id="ref-form-type">
+              <option value="full">Full Refund</option>
+              <option value="partial">Partial Refund</option>
+              <option value="credit">Store Credit</option>
+              <option value="exchange">Exchange</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Payment Method</label>
+            <select id="ref-form-payment">
+              <option value="bank_transfer">Bank Transfer</option>
+              <option value="credit_card">Credit Card</option>
+              <option value="cash">Cash</option>
+              <option value="check">Check</option>
+              <option value="digital_wallet">Digital Wallet</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select id="ref-form-status">
+              <option value="open">Open</option>
+              <option value="pending">Pending</option>
+              <option value="in_progress">In Progress</option>
+              <option value="approved">Approved</option>
+              <option value="closed">Closed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+          <div class="form-group full">
+            <label class="form-label">Reason</label>
+            <input type="text" id="ref-form-reason" placeholder="Reason for refund">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">BO Comment</label>
+            <textarea id="ref-form-comment" placeholder="Back office notes..."></textarea>
+          </div>
+        </div>
+        <div class="inline-error" id="ref-form-error" style="display:none;"></div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('ref-modal')">Cancel</button>
+      <button class="btn btn-primary" id="ref-form-submit" onclick="submitRefForm()">Save Request</button>
+    </div>
+  </div>
+</div>
+
+<!-- Refund Detail Modal -->
+<div class="modal-backdrop" id="ref-detail-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="ref-detail-title">Refund Details</div>
+      <button class="modal-close" onclick="closeModal('ref-detail-modal')">&times;</button>
+    </div>
+    <div class="modal-body" id="ref-detail-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeModal('ref-detail-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Refund Status Modal -->
+<div class="modal-backdrop" id="ref-status-modal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title">Update Refund Status</div>
+      <button class="modal-close" onclick="closeModal('ref-status-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="ref-status-id">
+      <div class="form-group" style="margin-bottom:14px;">
+        <label class="form-label">New Status</label>
+        <select id="ref-status-select">
+          <option value="open">Open</option>
+          <option value="pending">Pending</option>
+          <option value="in_progress">In Progress</option>
+          <option value="approved">Approved</option>
+          <option value="closed">Closed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Comment (optional)</label>
+        <textarea id="ref-status-comment" placeholder="Reason for status change..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('ref-status-modal')">Cancel</button>
+      <button class="btn btn-primary" id="ref-status-submit" onclick="submitRefStatus()">Update Status</button>
+    </div>
+  </div>
+</div>
+
+<!-- Refund Comment Modal -->
+<div class="modal-backdrop" id="ref-comment-modal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title">Add BO Comment</div>
+      <button class="modal-close" onclick="closeModal('ref-comment-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="ref-comment-id">
+      <div class="form-group">
+        <label class="form-label">Comment</label>
+        <textarea id="ref-comment-text" placeholder="Add a back office comment..." style="min-height:100px;"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('ref-comment-modal')">Cancel</button>
+      <button class="btn btn-primary" id="ref-comment-submit" onclick="submitRefComment()">Save Comment</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================
+     MODALS — PAYMENT RESERVES
+================================================================ -->
+
+<!-- New Reserve -->
+<div class="modal-backdrop" id="res-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="res-modal-title">New Payment Reserve</div>
+      <button class="modal-close" onclick="closeModal('res-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="res-form" onsubmit="return false">
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Country *</label>
+            <select id="res-form-country">
+              <option value="">— Select —</option>
+              <option value="MX">Mexico</option>
+              <option value="CO">Colombia</option>
+              <option value="AR">Argentina</option>
+              <option value="CL">Chile</option>
+              <option value="PE">Peru</option>
+              <option value="BR">Brazil</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Reserve Date *</label>
+            <input type="date" id="res-form-date">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Case Number *</label>
+            <input type="text" id="res-form-case" placeholder="CASE-001">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Order Number</label>
+            <input type="text" id="res-form-order" placeholder="ORD-2024-001">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">Customer Name</label>
+            <input type="text" id="res-form-customer" placeholder="Customer name">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Reserved Amount</label>
+            <input type="number" id="res-form-amount" step="0.01" placeholder="0.00">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Released Amount</label>
+            <input type="number" id="res-form-released" step="0.01" placeholder="0.00">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Currency</label>
+            <select id="res-form-currency">
+              <option value="USD">USD</option>
+              <option value="MXN">MXN</option>
+              <option value="COP">COP</option>
+              <option value="ARS">ARS</option>
+              <option value="CLP">CLP</option>
+              <option value="PEN">PEN</option>
+              <option value="BRL">BRL</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Reserve Type</label>
+            <select id="res-form-type">
+              <option value="payment_hold">Payment Hold</option>
+              <option value="chargeback">Chargeback</option>
+              <option value="fraud_review">Fraud Review</option>
+              <option value="dispute">Dispute</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select id="res-form-status">
+              <option value="open">Open</option>
+              <option value="pending">Pending</option>
+              <option value="in_progress">In Progress</option>
+              <option value="approved">Approved</option>
+              <option value="closed">Closed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+          <div class="form-group full">
+            <label class="form-label">Reason</label>
+            <input type="text" id="res-form-reason" placeholder="Reason for reserve">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">BO Comment</label>
+            <textarea id="res-form-comment" placeholder="Back office notes..."></textarea>
+          </div>
+        </div>
+        <div class="inline-error" id="res-form-error" style="display:none;"></div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('res-modal')">Cancel</button>
+      <button class="btn btn-primary" id="res-form-submit" onclick="submitResForm()">Save Reserve</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reserve Detail Modal -->
+<div class="modal-backdrop" id="res-detail-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="res-detail-title">Reserve Details</div>
+      <button class="modal-close" onclick="closeModal('res-detail-modal')">&times;</button>
+    </div>
+    <div class="modal-body" id="res-detail-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeModal('res-detail-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reserve Status Modal -->
+<div class="modal-backdrop" id="res-status-modal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title">Update Reserve Status</div>
+      <button class="modal-close" onclick="closeModal('res-status-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="res-status-id">
+      <div class="form-group" style="margin-bottom:14px;">
+        <label class="form-label">New Status</label>
+        <select id="res-status-select">
+          <option value="open">Open</option>
+          <option value="pending">Pending</option>
+          <option value="in_progress">In Progress</option>
+          <option value="approved">Approved</option>
+          <option value="closed">Closed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Comment (optional)</label>
+        <textarea id="res-status-comment" placeholder="Reason for status change..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('res-status-modal')">Cancel</button>
+      <button class="btn btn-primary" id="res-status-submit" onclick="submitResStatus()">Update Status</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reserve Comment Modal -->
+<div class="modal-backdrop" id="res-comment-modal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title">Add BO Comment</div>
+      <button class="modal-close" onclick="closeModal('res-comment-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="res-comment-id">
+      <div class="form-group">
+        <label class="form-label">Comment</label>
+        <textarea id="res-comment-text" placeholder="Add a back office comment..." style="min-height:100px;"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('res-comment-modal')">Cancel</button>
+      <button class="btn btn-primary" id="res-comment-submit" onclick="submitResComment()">Save Comment</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================
+     MODALS — USERS
+================================================================ -->
+
+<!-- Edit User Modal -->
+<div class="modal-backdrop" id="user-edit-modal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title" id="user-edit-title">Edit User</div>
+      <button class="modal-close" onclick="closeModal('user-edit-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="user-edit-id">
+      <div class="form-group" style="margin-bottom:14px;">
+        <label class="form-label">Full Name *</label>
+        <input type="text" id="user-edit-name" placeholder="Full name">
+      </div>
+      <div class="form-group" style="margin-bottom:14px;">
+        <label class="form-label">Role *</label>
+        <select id="user-edit-role">
+          <option value="agent">Agent</option>
+          <option value="ols">OLS</option>
+          <option value="supervisor">Supervisor</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:14px;">
+        <label class="form-label">Country</label>
+        <select id="user-edit-country">
+          <option value="">— All Countries —</option>
+          <option value="MX">Mexico</option>
+          <option value="CO">Colombia</option>
+          <option value="AR">Argentina</option>
+          <option value="CL">Chile</option>
+          <option value="PE">Peru</option>
+          <option value="BR">Brazil</option>
+          <option value="EC">Ecuador</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:14px;">
+        <label class="form-label">Team</label>
+        <input type="text" id="user-edit-team" placeholder="Team name (optional)">
+      </div>
+      <div class="form-group" style="margin-bottom:14px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+          <input type="checkbox" id="user-edit-active">
+          Active user
+        </label>
+      </div>
+      <div class="inline-error" id="user-edit-error" style="display:none;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('user-edit-modal')">Cancel</button>
+      <button class="btn btn-primary" id="user-edit-submit" onclick="submitUserEdit()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================
+     SCRIPTS
+================================================================ -->
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script src="js/dashboard.js"></script>
+<script src="js/cancellations.js"></script>
+<script src="js/credit-notes.js"></script>
+<script src="js/refunds.js"></script>
+<script src="js/reserves.js"></script>
+<script src="js/users.js"></script>
+
 <script>
-// ============================================================
-// SUPABASE CLIENT INIT
-// ============================================================
-const db = supabase.createClient(
-  'https://bwluicrpesohyrriygpd.supabase.co',
-  'sb_publishable_By4xhHDAxmFWFdHRPoGq7w_qPF-tKAc',
-  { auth: { persistSession: true, autoRefreshToken: true } }
-);
-
-// ============================================================
-// STATE
-// ============================================================
-let state = {
-  user: null,
-  userProfile: null,
-  clients: [],
-  reasons: [],
-  users: [],
-  currentPage: 0,
-  pageSize: 50,
-  totalCount: 0,
-  searchTimeout: null,
-};
-
-// ============================================================
-// AUTH
-// ============================================================
-async function init() {
-  const { data: { session } } = await db.auth.getSession();
-  if (session?.user) {
-    await onLogin(session.user);
-  }
-  // Escuchar cambios de auth
-  db.auth.onAuthStateChange(async (event, session) => {
-    if (event === 'SIGNED_IN' && session?.user) await onLogin(session.user);
-    if (event === 'SIGNED_OUT') onLogout();
+// Login on Enter key
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('login-password').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doLogin();
   });
-}
+  document.getElementById('login-email').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('login-password').focus();
+  });
 
-async function onLogin(user) {
-  state.user = user;
-  document.getElementById('login-screen').style.display = 'none';
-  document.getElementById('app').classList.add('visible');
-  document.getElementById('topbar-user').textContent = user.email;
-
-  // Cargar catálogos
-  await Promise.all([loadClients(), loadReasons(), loadUsersForSelect()]);
-
-  // Panel inicial
-  await loadDashboard();
-
-  // Realtime
-  db.channel('rma_rt')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'rma_requests' }, () => {
-      loadDashboard();
-      if (document.getElementById('panel-requests').classList.contains('active')) loadRequests();
-    })
-    .subscribe();
-}
-
-function onLogout() {
-  state.user = null;
-  document.getElementById('app').classList.remove('visible');
-  document.getElementById('login-screen').style.display = 'flex';
-}
-
-async function doLogin() {
-  const email    = document.getElementById('login-email').value.trim();
-  const password = document.getElementById('login-password').value;
-  const errEl    = document.getElementById('login-error');
-  errEl.style.display = 'none';
-
-  if (!email || !password) { errEl.textContent = 'Ingresa correo y contraseña'; errEl.style.display = 'block'; return; }
-
-  const { error } = await db.auth.signInWithPassword({ email, password });
-  if (error) { errEl.textContent = error.message; errEl.style.display = 'block'; }
-}
-
-async function doSignout() {
-  await db.auth.signOut();
-}
-
-// ============================================================
-// NAVIGATION
-// ============================================================
-function showPanel(panelId, btn) {
-  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-  document.getElementById(`panel-${panelId}`).classList.add('active');
-  if (btn) btn.classList.add('active');
-
-  if (panelId === 'dashboard') loadDashboard();
-  if (panelId === 'requests')  loadRequests();
-  if (panelId === 'clients')   loadClientsTable();
-}
-
-// ============================================================
-// DASHBOARD
-// ============================================================
-async function loadDashboard() {
-  await Promise.all([loadKpis(), loadRecentTable()]);
-}
-
-async function loadKpis() {
-  const { data, error } = await db.from('rma_requests')
-    .select('status, aging_days, returned_amount');
-
-  const el = document.getElementById('kpi-grid');
-  if (error) { el.innerHTML = '<div class="loading">Error cargando KPIs</div>'; return; }
-
-  const total   = data.length;
-  const pending = data.filter(r => r.status === 'pending_om').length;
-  const inProc  = data.filter(r => r.status === 'in_process').length;
-  const closed  = data.filter(r => r.status === 'closed').length;
-  const avgAge  = total ? Math.round(data.reduce((s, r) => s + (r.aging_days || 0), 0) / total) : 0;
-  const totalAmt = data.reduce((s, r) => s + (r.returned_amount || 0), 0);
-
-  el.innerHTML = `
-    <div class="kpi-card"><div class="kpi-label">Total RMAs</div><div class="kpi-value">${total}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Pendiente OM</div><div class="kpi-value warn">${pending}</div></div>
-    <div class="kpi-card"><div class="kpi-label">En proceso</div><div class="kpi-value" style="color:var(--c-brand)">${inProc}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Cerrados</div><div class="kpi-value ok">${closed}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Aging promedio</div><div class="kpi-value ${avgAge > 30 ? 'warn' : ''}">${avgAge}d</div></div>
-    <div class="kpi-card"><div class="kpi-label">Importe retornado</div><div class="kpi-value" style="font-size:18px">$${totalAmt.toLocaleString('es-MX', {minimumFractionDigits:2})}</div></div>
-  `;
-}
-
-async function loadRecentTable() {
-  const { data } = await db.from('rma_dashboard').select('*').order('request_date', { ascending: false }).limit(10);
-  document.getElementById('recent-table-body').innerHTML = renderRmaTable(data || []);
-}
-
-// ============================================================
-// REQUESTS TABLE
-// ============================================================
-async function loadRequests() {
-  const search    = document.getElementById('search-input')?.value.trim() || '';
-  const status    = document.getElementById('filter-status')?.value || '';
-  const warehouse = document.getElementById('filter-warehouse')?.value || '';
-
-  let q = db.from('rma_dashboard').select('*', { count: 'exact' })
-    .order('request_date', { ascending: false })
-    .range(state.currentPage * state.pageSize, (state.currentPage + 1) * state.pageSize - 1);
-
-  if (status)    q = q.eq('status', status);
-  if (warehouse) q = q.eq('warehouse', warehouse);
-  if (search)    q = q.ilike('product_code', `%${search}%`);
-
-  const { data, count } = await q;
-  state.totalCount = count || 0;
-
-  document.getElementById('requests-table-body').innerHTML = renderRmaTable(data || []);
-  renderPagination();
-}
-
-function renderRmaTable(rows) {
-  if (!rows.length) return '<div class="empty"><div class="empty-icon">&#9744;</div>Sin solicitudes</div>';
-  return `
-    <table>
-      <thead>
-        <tr>
-          <th>Fecha</th><th>Cliente</th><th>Código</th><th>Cant.</th>
-          <th>Almacén</th><th>Tipo</th><th>Estado</th><th>Aging</th><th>Imgs</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows.map(r => `
-          <tr onclick="openEditModal('${r.id}')" ondblclick="event.stopPropagation(); ImagesPanel.open(db,'${r.id}','${r.product_code}')">
-            <td class="muted">${r.request_date || ''}</td>
-            <td>${r.client_name || ''}</td>
-            <td><code style="font-size:12px;color:var(--c-brand)">${r.product_code || ''}</code></td>
-            <td>${r.quantity ?? ''}</td>
-            <td><span style="font-size:11px;font-weight:500">${r.warehouse || ''}</span></td>
-            <td>${badgeType(r.return_type)}</td>
-            <td>${badgeStatus(r.status)}</td>
-            <td class="${(r.aging_days||0) > 30 ? 'warn' : 'muted'}">${r.aging_days ?? '—'}d</td>
-            <td><button onclick="event.stopPropagation(); ImagesPanel.open(db,'${r.id}','${r.product_code}')" style="background:none;border:none;cursor:pointer;color:var(--c-brand);font-size:12px;padding:2px 6px;border-radius:4px;border:0.5px solid var(--c-border2);">&#128247;</button></td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-  `;
-}
-
-function badgeStatus(s) {
-  const map = { pending_om: ['badge-pending','Pendiente OM'], in_process: ['badge-process','En proceso'], closed: ['badge-closed','Cerrado'], cancelled: ['badge-cancelled','Cancelado'] };
-  const [cls, label] = map[s] || ['',''];
-  return `<span class="badge ${cls}">${label}</span>`;
-}
-
-function badgeType(t) {
-  return `<span class="badge ${t === 'devolucion' ? 'badge-devolucion' : 'badge-rechazo'}">${t === 'devolucion' ? 'Dev.' : 'Rec.'}</span>`;
-}
-
-function renderPagination() {
-  const el = document.getElementById('pagination');
-  if (!el) return;
-  const pages = Math.ceil(state.totalCount / state.pageSize);
-  el.innerHTML = `
-    <button class="btn btn-sm" onclick="changePage(-1)" ${state.currentPage === 0 ? 'disabled' : ''}>&#8592;</button>
-    <span>${state.currentPage + 1} / ${pages || 1}</span>
-    <button class="btn btn-sm" onclick="changePage(1)" ${state.currentPage >= pages - 1 ? 'disabled' : ''}>&#8594;</button>
-    <div class="pagination-spacer"></div>
-    <span>${state.totalCount} solicitudes</span>
-  `;
-}
-
-function changePage(dir) {
-  state.currentPage = Math.max(0, state.currentPage + dir);
-  loadRequests();
-}
-
-function debouncedSearch() {
-  clearTimeout(state.searchTimeout);
-  state.searchTimeout = setTimeout(() => { state.currentPage = 0; loadRequests(); }, 300);
-}
-
-// ============================================================
-// CLIENTS TABLE
-// ============================================================
-async function loadClientsTable() {
-  const { data } = await db.from('clients').select('*').order('name');
-  const el = document.getElementById('clients-table-body');
-  if (!data?.length) { el.innerHTML = '<div class="empty">Sin clientes</div>'; return; }
-  el.innerHTML = `
-    <table>
-      <thead><tr><th>Nombre</th><th>País</th><th>Activo</th></tr></thead>
-      <tbody>
-        ${data.map(c => `
-          <tr>
-            <td>${c.name}</td>
-            <td class="muted">${c.country}</td>
-            <td>${c.active ? '&#10003;' : '&#8212;'}</td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-  `;
-}
-
-// ============================================================
-// CATALOGS (para selects)
-// ============================================================
-async function loadClients() {
-  const { data } = await db.from('clients').select('id, name').eq('active', true).order('name');
-  state.clients = data || [];
-}
-
-async function loadReasons() {
-  const { data } = await db.from('return_reasons').select('id, code, description, category').eq('active', true).order('code');
-  state.reasons = data || [];
-}
-
-async function loadUsersForSelect() {
-  const { data } = await db.from('users').select('id, full_name').eq('active', true).order('full_name');
-  state.users = data || [];
-}
-
-function populateSelects() {
-  // Clientes
-  const clientSel = document.getElementById('f-client');
-  clientSel.innerHTML = '<option value="">— Seleccionar —</option>' +
-    state.clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-
-  // Motivos
-  const reasonSel = document.getElementById('f-reason');
-  reasonSel.innerHTML = '<option value="">— Sin motivo —</option>' +
-    state.reasons.map(r => `<option value="${r.id}">[${r.code}] ${r.description}</option>`).join('');
-
-  // Usuarios
-  const userSel = document.getElementById('f-assigned');
-  userSel.innerHTML = '<option value="">— Sin asignar —</option>' +
-    state.users.map(u => `<option value="${u.id}">${u.full_name}</option>`).join('');
-}
-
-// ============================================================
-// MODAL — CREAR RMA
-// ============================================================
-function openCreateModal() {
-  document.getElementById('modal-title').textContent = 'Nueva solicitud RMA';
-  document.getElementById('rma-id').value = '';
-  populateSelects();
-
-  // Defaults
-  document.getElementById('f-request-date').value = new Date().toISOString().slice(0, 10);
-  document.getElementById('f-product-code').value = '';
-  document.getElementById('f-nc-code').value = '';
-  document.getElementById('f-po').value = '';
-  document.getElementById('f-quantity').value = '';
-  document.getElementById('f-invoice').value = '';
-  document.getElementById('f-supply-comments').value = '';
-  document.getElementById('f-specialist-comments').value = '';
-  document.getElementById('f-rma-number').value = '';
-  document.getElementById('f-amount').value = '';
-  document.getElementById('f-status').value = 'pending_om';
-
-  document.getElementById('rma-modal').classList.add('open');
-}
-
-async function openEditModal(id) {
-  const { data, error } = await db.from('rma_dashboard').select('*').eq('id', id).single();
-  if (error || !data) { showToast('Error cargando solicitud', 'error'); return; }
-
-  document.getElementById('modal-title').textContent = 'Editar solicitud RMA';
-  document.getElementById('rma-id').value = id;
-  populateSelects();
-
-  document.getElementById('f-request-date').value     = data.request_date || '';
-  document.getElementById('f-product-code').value     = data.product_code || '';
-  document.getElementById('f-nc-code').value           = data.nc_code || '';
-  document.getElementById('f-po').value               = data.po_number || '';
-  document.getElementById('f-warehouse').value        = data.warehouse || 'MAIN';
-  document.getElementById('f-quantity').value         = data.quantity || '';
-  document.getElementById('f-invoice').value          = data.invoice_number || '';
-  document.getElementById('f-return-type').value      = data.return_type || 'devolucion';
-  document.getElementById('f-scope').value            = data.return_scope || 'parcial';
-  document.getElementById('f-supply-comments').value  = data.supply_comments || '';
-  document.getElementById('f-specialist-comments').value = data.specialist_comments || '';
-  document.getElementById('f-rma-number').value       = data.rma_number || '';
-  document.getElementById('f-amount').value           = data.returned_amount || '';
-  document.getElementById('f-status').value           = data.status || 'pending_om';
-
-  // Selects con valor del registro
-  setTimeout(() => {
-    if (data.client_id)          document.getElementById('f-client').value   = data.client_id;
-    if (data.return_reason_id)   document.getElementById('f-reason').value   = data.return_reason_id;
-    if (data.assigned_to_id)     document.getElementById('f-assigned').value = data.assigned_to_id;
-  }, 50);
-
-  document.getElementById('rma-modal').classList.add('open');
-}
-
-async function saveRma() {
-  const id = document.getElementById('rma-id').value;
-  const payload = {
-    request_date:       document.getElementById('f-request-date').value,
-    client_id:          document.getElementById('f-client').value || null,
-    po_number:          document.getElementById('f-po').value || null,
-    warehouse:          document.getElementById('f-warehouse').value,
-    product_code:       document.getElementById('f-product-code').value.trim(),
-    nc_code:            document.getElementById('f-nc-code').value.trim() || null,
-    quantity:           parseInt(document.getElementById('f-quantity').value) || null,
-    invoice_number:     document.getElementById('f-invoice').value.trim() || null,
-    return_type:        document.getElementById('f-return-type').value,
-    return_scope:       document.getElementById('f-scope').value,
-    return_reason_id:   document.getElementById('f-reason').value || null,
-    supply_comments:    document.getElementById('f-supply-comments').value.trim() || null,
-    specialist_comments:document.getElementById('f-specialist-comments').value.trim() || null,
-    rma_number:         document.getElementById('f-rma-number').value.trim() || null,
-    returned_amount:    parseFloat(document.getElementById('f-amount').value) || null,
-    status:             document.getElementById('f-status').value,
-    assigned_to_id:     document.getElementById('f-assigned').value || null,
-  };
-
-  // Validación básica client-side
-  if (!payload.product_code) { showToast('Código de producto requerido', 'error'); return; }
-  if (!payload.client_id)    { showToast('Selecciona un cliente', 'error'); return; }
-  if (!payload.quantity)     { showToast('Cantidad requerida', 'error'); return; }
-
-  let error;
-  if (id) {
-    ({ error } = await db.from('rma_requests').update(payload).eq('id', id));
-  } else {
-    payload.requester_id = state.user.id;
-    ({ error } = await db.from('rma_requests').insert(payload));
-  }
-
-  if (error) { showToast(`Error: ${error.message}`, 'error'); return; }
-
-  showToast(id ? 'Solicitud actualizada' : 'Solicitud creada', 'success');
-  closeModal('rma-modal');
-  await loadRequests();
-  await loadKpis();
-}
-
-// ============================================================
-// MODAL — CLIENTE
-// ============================================================
-function openClientModal() {
-  document.getElementById('c-name').value = '';
-  document.getElementById('c-country').value = 'MX';
-  document.getElementById('client-modal').classList.add('open');
-}
-
-async function saveClient() {
-  const name    = document.getElementById('c-name').value.trim().toUpperCase();
-  const country = document.getElementById('c-country').value.trim() || 'MX';
-  if (!name) { showToast('Nombre del cliente requerido', 'error'); return; }
-
-  const { error } = await db.from('clients').insert({ name, country });
-  if (error) { showToast(`Error: ${error.message}`, 'error'); return; }
-
-  showToast('Cliente creado', 'success');
-  closeModal('client-modal');
-  await loadClients();
-  await loadClientsTable();
-}
-
-// ============================================================
-// MODAL HELPERS
-// ============================================================
-function closeModal(id) {
-  document.getElementById(id).classList.remove('open');
-}
-
-// Cerrar al click fuera
-document.querySelectorAll('.modal-backdrop').forEach(bd => {
-  bd.addEventListener('click', e => { if (e.target === bd) bd.classList.remove('open'); });
+  // Mobile sidebar toggle visibility
+  const mq = window.matchMedia('(max-width: 768px)');
+  const toggle = document.getElementById('menu-toggle');
+  const checkMobile = () => { toggle.style.display = mq.matches ? 'inline-flex' : 'none'; };
+  mq.addEventListener('change', checkMobile);
+  checkMobile();
 });
-
-// ============================================================
-// TOAST
-// ============================================================
-function showToast(message, type = 'success') {
-  const el = document.createElement('div');
-  el.className = `toast ${type}`;
-  el.textContent = message;
-  document.getElementById('toast-container').appendChild(el);
-  setTimeout(() => el.remove(), 3500);
-}
-
-// ============================================================
-// BOOTSTRAP
-// ============================================================
-init();
 </script>
 
-<!-- Módulos adicionales -->
-<script>
-// ui/images-panel.js
-const ImagesPanel = (() => {
-  let _db, _rmaId, _rmaCode;
-
-  function inject() {
-    if (document.getElementById('img-modal')) return;
-    document.body.insertAdjacentHTML('beforeend', `
-      <div id="img-modal" style="
-        display:none; position:fixed; inset:0; z-index:300;
-        background:rgba(0,0,0,0.55); align-items:flex-start;
-        justify-content:center; padding-top:48px;
-      ">
-        <div style="
-          background:var(--c-surface); border-radius:var(--radius-lg);
-          width:100%; max-width:680px; max-height:85vh; overflow-y:auto;
-          border:0.5px solid var(--c-border);
-        ">
-          <div style="
-            display:flex; align-items:center; justify-content:space-between;
-            padding:14px 20px; border-bottom:0.5px solid var(--c-border);
-            position:sticky; top:0; background:var(--c-surface); z-index:1;
-          ">
-            <div>
-              <div style="font-weight:500; font-size:14px;" id="img-modal-title">Imágenes</div>
-              <div style="font-size:11px; color:var(--c-muted);" id="img-modal-sub"></div>
-            </div>
-            <button onclick="ImagesPanel.close()" style="
-              background:none; border:none; cursor:pointer; color:var(--c-muted);
-              font-size:20px; line-height:1; padding:4px 8px;
-            ">&times;</button>
-          </div>
-
-          <div style="padding:20px;">
-
-            <!-- Drop zone -->
-            <div id="img-dropzone" style="
-              border:1.5px dashed var(--c-border2); border-radius:var(--radius-lg);
-              padding:32px 20px; text-align:center; cursor:pointer;
-              transition:border-color 0.15s, background 0.15s;
-              margin-bottom:20px;
-            "
-            onclick="document.getElementById('img-file-input').click()"
-            ondragover="ImagesPanel._onDragOver(event)"
-            ondragleave="ImagesPanel._onDragLeave(event)"
-            ondrop="ImagesPanel._onDrop(event)">
-              <div style="font-size:28px; margin-bottom:8px; color:var(--c-muted);">&#8682;</div>
-              <div style="font-size:13px; color:var(--c-muted);">
-                Arrastra imágenes aquí o <span style="color:var(--c-brand)">haz clic para seleccionar</span>
-              </div>
-              <div style="font-size:11px; color:var(--c-hint); margin-top:6px;">
-                JPG · PNG · WEBP · PDF · Máx. 10 MB por archivo
-              </div>
-            </div>
-
-            <!-- Selector de tipo + input oculto -->
-            <div style="display:flex; gap:10px; align-items:center; margin-bottom:20px;">
-              <label style="font-size:12px; font-weight:500; color:var(--c-muted); white-space:nowrap;">Tipo de imagen</label>
-              <select id="img-type" style="flex:1;">
-                <option value="po">PO</option>
-                <option value="return_type">Tipo de devolución / rechazo</option>
-                <option value="scope">Parcial o completo</option>
-                <option value="product">Foto del producto</option>
-                <option value="other">Otro</option>
-              </select>
-            </div>
-            <input type="file" id="img-file-input" accept="image/*,.pdf" multiple
-              style="display:none" onchange="ImagesPanel._onFileSelect(event)">
-
-            <!-- Progress -->
-            <div id="img-progress" style="display:none; margin-bottom:16px;">
-              <div style="font-size:12px; color:var(--c-muted); margin-bottom:6px;" id="img-progress-label">Subiendo...</div>
-              <div style="background:var(--c-border); border-radius:999px; height:4px; overflow:hidden;">
-                <div id="img-progress-bar" style="height:100%; background:var(--c-brand); width:0%; transition:width 0.2s;"></div>
-              </div>
-            </div>
-
-            <!-- Grid de imágenes existentes -->
-            <div id="img-grid" style="
-              display:grid; grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); gap:12px;
-            ">
-              <div style="color:var(--c-muted); font-size:13px; grid-column:1/-1; text-align:center; padding:20px;">
-                Cargando imágenes...
-              </div>
-            </div>
-
-          </div>
-        </div>
-      </div>
-    `);
-  }
-
-  async function open(db, rmaId, rmaCode) {
-    _db = db;
-    _rmaId = rmaId;
-    _rmaCode = rmaCode;
-    inject();
-
-    document.getElementById('img-modal-title').textContent = 'Imágenes adjuntas';
-    document.getElementById('img-modal-sub').textContent = `RMA · ${rmaCode || rmaId}`;
-    document.getElementById('img-modal').style.display = 'flex';
-
-    await _loadImages();
-  }
-
-  function close() {
-    const el = document.getElementById('img-modal');
-    if (el) el.style.display = 'none';
-  }
-
-  async function _loadImages() {
-    const grid = document.getElementById('img-grid');
-    grid.innerHTML = '<div style="color:var(--c-muted);font-size:13px;grid-column:1/-1;text-align:center;padding:20px;">Cargando...</div>';
-
-    const { data, error } = await _db
-      .from('rma_images')
-      .select('*')
-      .eq('rma_request_id', _rmaId)
-      .order('uploaded_at', { ascending: false });
-
-    if (error) {
-      grid.innerHTML = `<div style="color:var(--c-danger);font-size:13px;grid-column:1/-1;padding:12px;">Error: ${error.message}</div>`;
-      return;
-    }
-
-    if (!data.length) {
-      grid.innerHTML = '<div style="color:var(--c-muted);font-size:13px;grid-column:1/-1;text-align:center;padding:32px;">Sin imágenes adjuntas</div>';
-      return;
-    }
-
-    grid.innerHTML = data.map(img => {
-      const { data: urlData } = _db.storage.from('rma-images').getPublicUrl(img.storage_path);
-      const url = urlData?.publicUrl || '#';
-      const isPdf = img.storage_path.endsWith('.pdf');
-      const typeLabel = { po:'PO', return_type:'Tipo dev.', scope:'Alcance', product:'Producto', other:'Otro' }[img.image_type] || img.image_type;
-      const date = new Date(img.uploaded_at).toLocaleDateString('es-MX', { day:'2-digit', month:'short' });
-
-      return `
-        <div style="
-          border:0.5px solid var(--c-border); border-radius:var(--radius);
-          overflow:hidden; position:relative; background:var(--c-bg);
-        ">
-          <a href="${url}" target="_blank" rel="noopener" style="display:block; text-decoration:none;">
-            ${isPdf
-              ? `<div style="height:100px;display:flex;align-items:center;justify-content:center;font-size:32px;color:var(--c-muted);">&#128196;</div>`
-              : `<img src="${url}" alt="${typeLabel}" loading="lazy" style="width:100%;height:100px;object-fit:cover;display:block;">`
-            }
-          </a>
-          <div style="padding:8px 10px; display:flex; align-items:center; justify-content:space-between;">
-            <div>
-              <div style="font-size:11px;font-weight:500;color:var(--c-text);">${typeLabel}</div>
-              <div style="font-size:10px;color:var(--c-muted);">${date}</div>
-            </div>
-            <button onclick="ImagesPanel._deleteImage('${img.id}','${img.storage_path}')" style="
-              background:none; border:none; cursor:pointer; color:var(--c-muted);
-              font-size:15px; padding:2px 4px; line-height:1;
-            " title="Eliminar">&#10005;</button>
-          </div>
-        </div>
-      `;
-    }).join('');
-  }
-
-  async function _uploadFiles(files) {
-    const imageType = document.getElementById('img-type').value;
-    const progress  = document.getElementById('img-progress');
-    const bar       = document.getElementById('img-progress-bar');
-    const label     = document.getElementById('img-progress-label');
-
-    progress.style.display = 'block';
-    let done = 0;
-
-    for (const file of files) {
-      if (file.size > 10 * 1024 * 1024) {
-        _toast(`${file.name} supera 10 MB — omitido`, 'error');
-        done++;
-        continue;
-      }
-
-      label.textContent = `Subiendo ${file.name} (${done + 1}/${files.length})...`;
-      bar.style.width = `${Math.round((done / files.length) * 100)}%`;
-
-      const ext  = file.name.split('.').pop().toLowerCase();
-      const path = `rma/${_rmaId}/${imageType}_${Date.now()}_${Math.random().toString(36).slice(2,7)}.${ext}`;
-
-      const { error: upErr } = await _db.storage
-        .from('rma-images')
-        .upload(path, file, { upsert: false, contentType: file.type });
-
-      if (upErr) { _toast(`Error subiendo ${file.name}: ${upErr.message}`, 'error'); done++; continue; }
-
-      const { data: { user } } = await _db.auth.getUser();
-      await _db.from('rma_images').insert({
-        rma_request_id: _rmaId,
-        image_type: imageType,
-        storage_path: path,
-        uploaded_by: user.id,
-      });
-
-      done++;
-      bar.style.width = `${Math.round((done / files.length) * 100)}%`;
-    }
-
-    label.textContent = `Completado (${done} archivo${done !== 1 ? 's' : ''})`;
-    setTimeout(() => { progress.style.display = 'none'; bar.style.width = '0%'; }, 2000);
-    await _loadImages();
-  }
-
-  async function _deleteImage(id, storagePath) {
-    if (!confirm('¿Eliminar esta imagen?')) return;
-    await _db.storage.from('rma-images').remove([storagePath]);
-    await _db.from('rma_images').delete().eq('id', id);
-    await _loadImages();
-  }
-
-  function _onDragOver(e) {
-    e.preventDefault();
-    document.getElementById('img-dropzone').style.borderColor = 'var(--c-brand)';
-    document.getElementById('img-dropzone').style.background  = 'var(--c-brand-bg)';
-  }
-
-  function _onDragLeave(e) {
-    document.getElementById('img-dropzone').style.borderColor = 'var(--c-border2)';
-    document.getElementById('img-dropzone').style.background  = '';
-  }
-
-  function _onDrop(e) {
-    e.preventDefault();
-    _onDragLeave(e);
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length) _uploadFiles(files);
-  }
-
-  function _onFileSelect(e) {
-    const files = Array.from(e.target.files);
-    if (files.length) _uploadFiles(files);
-    e.target.value = '';
-  }
-
-  function _toast(msg, type = 'success') {
-    if (typeof showToast === 'function') { showToast(msg, type); return; }
-    const el = document.createElement('div');
-    el.textContent = msg;
-    el.style.cssText = `position:fixed;bottom:20px;right:20px;z-index:999;padding:12px 16px;
-      border-radius:8px;font-size:13px;background:var(--c-surface);
-      border:0.5px solid var(--c-border);border-left:3px solid ${type==='error'?'var(--c-danger)':'var(--c-success)'}`;
-    document.body.appendChild(el);
-    setTimeout(() => el.remove(), 3000);
-  }
-
-  document.addEventListener('click', e => {
-    const modal = document.getElementById('img-modal');
-    if (modal && e.target === modal) close();
-  });
-
-  return { open, close, _onDragOver, _onDragLeave, _onDrop, _onFileSelect, _deleteImage };
-})();
-
-</script>
-<script>
-// ui/excel-importer.js
-const ExcelImporter = (() => {
-  let _db;
-  let _parsedRows   = [];
-  let _clients      = {};
-  let _reasons      = {};
-  let _defaultUserId = null;
-
-  const WAREHOUSE_MAP = {
-    'main': 'MAIN', 'rfr': 'RFR', 'rfrb': 'RFRB', 'scrp': 'SCRP',
-  };
-
-  const RETURN_TYPE_MAP = {
-    'devolución': 'devolucion', 'devolucion': 'devolucion',
-    'cancelación': 'cancelled',  'cancelacion': 'cancelled',
-    'rechazo': 'rechazo',
-  };
-
-  const SCOPE_MAP = {
-    'parcial': 'parcial', 'completo': 'completo',
-  };
-
-  const STATUS_FROM_EXCEL = {
-    'pending_om': 'pending_om', 'pendiente om': 'pending_om',
-    'in_process': 'in_process', 'en proceso':   'in_process',
-    'closed': 'closed',         'cerrado':       'closed',
-    'cancelled': 'cancelled',   'cancelado':     'cancelled',
-  };
-
-  function inject() {
-    if (document.getElementById('import-modal')) return;
-    document.body.insertAdjacentHTML('beforeend', `
-      <div id="import-modal" style="
-        display:none; position:fixed; inset:0; z-index:300;
-        background:rgba(0,0,0,0.55); align-items:flex-start;
-        justify-content:center; padding-top:40px; padding-bottom:40px;
-      ">
-        <div style="
-          background:var(--c-surface); border-radius:var(--radius-lg);
-          width:100%; max-width:860px; max-height:88vh; overflow-y:auto;
-          border:0.5px solid var(--c-border); display:flex; flex-direction:column;
-        ">
-          <!-- Header -->
-          <div style="
-            display:flex; align-items:center; justify-content:space-between;
-            padding:14px 20px; border-bottom:0.5px solid var(--c-border);
-            position:sticky; top:0; background:var(--c-surface); z-index:1;
-          ">
-            <div>
-              <div style="font-weight:500; font-size:14px;">Importar desde Excel</div>
-              <div style="font-size:11px; color:var(--c-muted);">Template RMA Tracker MX</div>
-            </div>
-            <button onclick="ExcelImporter.close()" style="
-              background:none; border:none; cursor:pointer; color:var(--c-muted);
-              font-size:20px; line-height:1; padding:4px 8px;
-            ">&times;</button>
-          </div>
-
-          <div style="padding:20px; flex:1;">
-
-            <!-- STEP 1: Archivo -->
-            <div id="imp-step-file">
-              <div id="imp-dropzone" style="
-                border:1.5px dashed var(--c-border2); border-radius:var(--radius-lg);
-                padding:40px 20px; text-align:center; cursor:pointer;
-                transition:border-color 0.15s, background 0.15s; margin-bottom:16px;
-              "
-              onclick="document.getElementById('imp-file-input').click()"
-              ondragover="ExcelImporter._onDragOver(event)"
-              ondragleave="ExcelImporter._onDragLeave(event)"
-              ondrop="ExcelImporter._onDrop(event)">
-                <div style="font-size:32px; margin-bottom:10px; color:var(--c-muted);">&#128196;</div>
-                <div style="font-size:14px; color:var(--c-text); margin-bottom:4px;">
-                  Arrastra el archivo Excel aquí
-                </div>
-                <div style="font-size:12px; color:var(--c-muted);">
-                  o <span style="color:var(--c-brand)">haz clic para seleccionar</span> · .xlsx · .xls
-                </div>
-              </div>
-              <input type="file" id="imp-file-input" accept=".xlsx,.xls"
-                style="display:none" onchange="ExcelImporter._onFileSelect(event)">
-            </div>
-
-            <!-- STEP 2: Preview + errores -->
-            <div id="imp-step-preview" style="display:none;">
-              <div id="imp-stats" style="display:flex; gap:16px; margin-bottom:16px; flex-wrap:wrap;"></div>
-
-              <div id="imp-errors" style="
-                display:none; background:var(--c-danger-bg);
-                border:0.5px solid var(--c-danger); border-radius:var(--radius);
-                padding:12px 16px; margin-bottom:16px; font-size:12px; color:var(--c-danger);
-              "></div>
-
-              <div id="imp-new-clients" style="
-                display:none; background:var(--c-warn-bg);
-                border:0.5px solid var(--c-warn); border-radius:var(--radius);
-                padding:12px 16px; margin-bottom:16px; font-size:12px; color:var(--c-warn);
-              "></div>
-
-              <div style="overflow-x:auto; border:0.5px solid var(--c-border); border-radius:var(--radius-lg); margin-bottom:16px;">
-                <table id="imp-table" style="width:100%; border-collapse:collapse; font-size:12px;">
-                  <thead>
-                    <tr style="background:var(--c-bg);">
-                      <th style="padding:8px 12px; text-align:left; font-size:11px; color:var(--c-muted); font-weight:500; border-bottom:0.5px solid var(--c-border);">Estado</th>
-                      <th style="padding:8px 12px; text-align:left; font-size:11px; color:var(--c-muted); font-weight:500; border-bottom:0.5px solid var(--c-border);">Fecha</th>
-                      <th style="padding:8px 12px; text-align:left; font-size:11px; color:var(--c-muted); font-weight:500; border-bottom:0.5px solid var(--c-border);">Cliente</th>
-                      <th style="padding:8px 12px; text-align:left; font-size:11px; color:var(--c-muted); font-weight:500; border-bottom:0.5px solid var(--c-border);">Código</th>
-                      <th style="padding:8px 12px; text-align:left; font-size:11px; color:var(--c-muted); font-weight:500; border-bottom:0.5px solid var(--c-border);">Cant.</th>
-                      <th style="padding:8px 12px; text-align:left; font-size:11px; color:var(--c-muted); font-weight:500; border-bottom:0.5px solid var(--c-border);">Almacén</th>
-                      <th style="padding:8px 12px; text-align:left; font-size:11px; color:var(--c-muted); font-weight:500; border-bottom:0.5px solid var(--c-border);">Tipo</th>
-                      <th style="padding:8px 12px; text-align:left; font-size:11px; color:var(--c-muted); font-weight:500; border-bottom:0.5px solid var(--c-border);">RMA</th>
-                    </tr>
-                  </thead>
-                  <tbody id="imp-table-body"></tbody>
-                </table>
-              </div>
-
-              <div style="
-                background:var(--c-bg); border-radius:var(--radius); padding:14px 16px;
-                margin-bottom:16px; display:flex; flex-direction:column; gap:10px;
-              ">
-                <div style="font-size:12px; font-weight:500; color:var(--c-muted); margin-bottom:2px;">Opciones de importación</div>
-                <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                  <input type="checkbox" id="imp-opt-create-clients" checked>
-                  Crear clientes nuevos automáticamente
-                </label>
-                <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                  <input type="checkbox" id="imp-opt-skip-errors" checked>
-                  Omitir filas con errores (en lugar de abortar todo)
-                </label>
-              </div>
-
-              <div style="display:flex; justify-content:flex-end; gap:8px;">
-                <button onclick="ExcelImporter._reset()" style="
-                  padding:7px 16px; border-radius:var(--radius); font-size:13px;
-                  border:0.5px solid var(--c-border2); background:var(--c-surface);
-                  color:var(--c-text); cursor:pointer;
-                ">Seleccionar otro archivo</button>
-                <button id="imp-btn-import" onclick="ExcelImporter._doImport()" style="
-                  padding:7px 16px; border-radius:var(--radius); font-size:13px; font-weight:500;
-                  background:var(--c-brand); color:#fff; border:none; cursor:pointer;
-                ">Importar</button>
-              </div>
-            </div>
-
-            <!-- STEP 3: Resultado -->
-            <div id="imp-step-result" style="display:none; text-align:center; padding:32px 20px;">
-              <div style="font-size:40px; margin-bottom:16px;" id="imp-result-icon">&#10003;</div>
-              <div style="font-size:18px; font-weight:500; margin-bottom:8px;" id="imp-result-title"></div>
-              <div style="font-size:13px; color:var(--c-muted);" id="imp-result-detail"></div>
-              <div style="margin-top:24px; display:flex; gap:8px; justify-content:center;">
-                <button onclick="ExcelImporter._reset()" style="
-                  padding:8px 18px; border-radius:var(--radius); font-size:13px;
-                  border:0.5px solid var(--c-border2); background:var(--c-surface);
-                  color:var(--c-text); cursor:pointer;
-                ">Importar otro archivo</button>
-                <button onclick="ExcelImporter.close()" style="
-                  padding:8px 18px; border-radius:var(--radius); font-size:13px; font-weight:500;
-                  background:var(--c-brand); color:#fff; border:none; cursor:pointer;
-                ">Cerrar</button>
-              </div>
-            </div>
-
-          </div>
-        </div>
-      </div>
-    `);
-  }
-
-  async function open(db) {
-    _db = db;
-    inject();
-    _reset();
-
-    const [{ data: clients }, { data: reasons }, { data: { user } }] = await Promise.all([
-      _db.from('clients').select('id, name'),
-      _db.from('return_reasons').select('id, code'),
-      _db.auth.getUser(),
-    ]);
-
-    _clients = {};
-    (clients || []).forEach(c => { _clients[c.name.trim().toUpperCase()] = c.id; });
-
-    _reasons = {};
-    (reasons || []).forEach(r => { _reasons[r.code.trim().toUpperCase()] = r.id; });
-
-    _defaultUserId = user?.id || null;
-
-    document.getElementById('import-modal').style.display = 'flex';
-  }
-
-  function close() {
-    const el = document.getElementById('import-modal');
-    if (el) el.style.display = 'none';
-  }
-
-  function _parseFile(file) {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const wb   = XLSX.read(e.target.result, { type: 'array', cellDates: true });
-        const wsName = wb.SheetNames.find(n => n.toLowerCase().includes('template')) || wb.SheetNames[0];
-        const ws   = wb.Sheets[wsName];
-        const raw  = XLSX.utils.sheet_to_json(ws, { defval: null, raw: false });
-        _processRows(raw);
-      } catch (err) {
-        _showError(`No se pudo leer el archivo: ${err.message}`);
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  }
-
-  function _processRows(raw) {
-    const colMap = {
-      date:       ['Fecha de Solicitud', 'fecha de solicitud', 'FECHA DE SOLICITUD'],
-      requester:  ['Solicitante', 'solicitante'],
-      client:     ['Cliente', 'cliente'],
-      po:         ['PO', 'po'],
-      warehouse:  ['Almacen', 'almacen', 'Almacén'],
-      code:       ['Codigo', 'codigo', 'Código'],
-      nc:         ['12 NC', '12NC', '12 nc'],
-      qty:        ['Cantidad de Piezas', 'cantidad de piezas'],
-      invoice:    ['# Factura', '# factura'],
-      returnType: ['Rechazo o Devolucion', 'Rechazo o Devolución', 'rechazo o devolucion'],
-      scope:      ['Parcial o Completo', 'parcial o completo'],
-      reason:     ['Motivo de Devolución', 'Motivo de Devolucion'],
-      detail:     ['Detalle', 'detalle'],
-      supply:     ['Supply Comments', 'supply comments'],
-      rma:        ['RMA', 'rma'],
-      amount:     ['Importe retornado total', 'importe retornado total'],
-      assignedTo: ['Trabajado por:', 'Trabajado por'],
-      realDate:   ['Fecha de Realizacion', 'Fecha de Realización'],
-      arrears:    ['Arrears', 'arrears'],
-      aging:      ['Aging', 'aging'],
-      status:     ['Status', 'status'],
-      specialist: ['Order Specialist Comments', 'order specialist comments'],
-    };
-
-    function get(row, aliases) {
-      for (const k of aliases) {
-        if (k in row && row[k] !== null && row[k] !== '') return row[k];
-      }
-      return null;
-    }
-
-    const newClients = new Set();
-    _parsedRows = raw.map((row, idx) => {
-      const clientRaw   = (get(row, colMap.client) || '').toString().trim().toUpperCase();
-      const warehouseRaw= (get(row, colMap.warehouse) || '').toString().trim().toLowerCase();
-      const typeRaw     = (get(row, colMap.returnType) || '').toString().trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
-      const scopeRaw    = (get(row, colMap.scope) || '').toString().trim().toLowerCase();
-      const statusRaw   = (get(row, colMap.status) || '').toString().trim().toLowerCase();
-
-      const errors = [];
-
-      const warehouse = WAREHOUSE_MAP[warehouseRaw];
-      if (!warehouse) errors.push(`Almacén desconocido: "${get(row, colMap.warehouse)}"`);
-
-      const returnType = RETURN_TYPE_MAP[typeRaw];
-      if (!returnType) errors.push(`Tipo devolución desconocido: "${get(row, colMap.returnType)}"`);
-
-      const returnScope = SCOPE_MAP[scopeRaw];
-      if (!returnScope) errors.push(`Alcance desconocido: "${get(row, colMap.scope)}"`);
-
-      if (!clientRaw) errors.push('Cliente vacío');
-      else if (!_clients[clientRaw]) newClients.add(clientRaw);
-
-      const productCode = get(row, colMap.code);
-      if (!productCode) errors.push('Código de producto vacío');
-
-      const qty = parseInt(get(row, colMap.qty));
-      if (!qty || qty < 1) errors.push('Cantidad inválida');
-
-      let requestDate = get(row, colMap.date);
-      if (requestDate) {
-        const d = new Date(requestDate);
-        requestDate = isNaN(d) ? null : d.toISOString().slice(0, 10);
-      }
-      if (!requestDate) requestDate = new Date().toISOString().slice(0, 10);
-
-      const status = STATUS_FROM_EXCEL[statusRaw] || 'pending_om';
-      const finalStatus = returnType === 'cancelled' ? 'cancelled' : status;
-      const finalReturnType = returnType === 'cancelled' ? 'devolucion' : returnType;
-
-      return {
-        _rowNum: idx + 2,
-        _errors: errors,
-        _clientRaw: clientRaw,
-        _isNew: !!clientRaw && !_clients[clientRaw],
-        request_date:        requestDate,
-        client_name:         clientRaw,
-        po_number:           get(row, colMap.po) || null,
-        warehouse:           warehouse || null,
-        product_code:        productCode ? productCode.toString().trim() : null,
-        nc_code:             get(row, colMap.nc) ? get(row, colMap.nc).toString().trim() : null,
-        quantity:            qty || null,
-        invoice_number:      get(row, colMap.invoice) ? get(row, colMap.invoice).toString().trim() : null,
-        return_type:         finalReturnType || null,
-        return_scope:        returnScope || null,
-        supply_comments:     get(row, colMap.supply) || null,
-        rma_number:          get(row, colMap.rma) || null,
-        returned_amount:     parseFloat(get(row, colMap.amount)) || null,
-        realization_date:    get(row, colMap.realDate) || null,
-        arrears:             parseInt(get(row, colMap.arrears)) || null,
-        aging_days:          parseInt(get(row, colMap.aging)) || null,
-        status:              finalStatus,
-        specialist_comments: get(row, colMap.specialist) || null,
-        detail_notes:        get(row, colMap.detail) || null,
-      };
-    }).filter(r => r.product_code || r.client_name);
-
-    _renderPreview(newClients);
-  }
-
-  function _renderPreview(newClients) {
-    document.getElementById('imp-step-file').style.display = 'none';
-    document.getElementById('imp-step-preview').style.display = 'block';
-
-    const total    = _parsedRows.length;
-    const withErr  = _parsedRows.filter(r => r._errors.length > 0).length;
-    const valid    = total - withErr;
-    const newCli   = newClients.size;
-
-    document.getElementById('imp-stats').innerHTML = `
-      <div style="background:var(--c-bg);border:0.5px solid var(--c-border);border-radius:var(--radius);padding:10px 16px;">
-        <div style="font-size:11px;color:var(--c-muted);">Total filas</div>
-        <div style="font-size:20px;font-weight:600;">${total}</div>
-      </div>
-      <div style="background:var(--c-success-bg);border:0.5px solid var(--c-border);border-radius:var(--radius);padding:10px 16px;">
-        <div style="font-size:11px;color:var(--c-success);">Válidas</div>
-        <div style="font-size:20px;font-weight:600;color:var(--c-success);">${valid}</div>
-      </div>
-      ${withErr ? `
-      <div style="background:var(--c-danger-bg);border:0.5px solid var(--c-border);border-radius:var(--radius);padding:10px 16px;">
-        <div style="font-size:11px;color:var(--c-danger);">Con errores</div>
-        <div style="font-size:20px;font-weight:600;color:var(--c-danger);">${withErr}</div>
-      </div>` : ''}
-      ${newCli ? `
-      <div style="background:var(--c-warn-bg);border:0.5px solid var(--c-border);border-radius:var(--radius);padding:10px 16px;">
-        <div style="font-size:11px;color:var(--c-warn);">Clientes nuevos</div>
-        <div style="font-size:20px;font-weight:600;color:var(--c-warn);">${newCli}</div>
-      </div>` : ''}
-    `;
-
-    if (newCli > 0) {
-      const el = document.getElementById('imp-new-clients');
-      el.style.display = 'block';
-      el.innerHTML = `<strong>Clientes nuevos que se crearán:</strong> ${[...newClients].join(', ')}`;
-    }
-
-    const preview = _parsedRows.slice(0, 100);
-    document.getElementById('imp-table-body').innerHTML = preview.map(r => {
-      const hasErr = r._errors.length > 0;
-      const rowBg  = hasErr ? 'var(--c-danger-bg)' : '';
-      return `
-        <tr style="border-bottom:0.5px solid var(--c-border); background:${rowBg}; cursor:default;"
-            title="${hasErr ? r._errors.join('\n') : ''}">
-          <td style="padding:7px 12px;">
-            ${hasErr
-              ? `<span style="color:var(--c-danger);font-size:11px;font-weight:500;">&#9888; Error</span>`
-              : `<span style="color:var(--c-success);font-size:11px;">&#10003; OK</span>`
-            }
-          </td>
-          <td style="padding:7px 12px;color:var(--c-muted);">${r.request_date || ''}</td>
-          <td style="padding:7px 12px;">
-            ${r.client_name}
-            ${r._isNew ? '<span style="font-size:10px;color:var(--c-warn);margin-left:4px;">nuevo</span>' : ''}
-          </td>
-          <td style="padding:7px 12px;font-family:monospace;font-size:11px;color:var(--c-brand);">${r.product_code || ''}</td>
-          <td style="padding:7px 12px;color:var(--c-muted);">${r.quantity || ''}</td>
-          <td style="padding:7px 12px;font-size:11px;font-weight:500;">${r.warehouse || ''}</td>
-          <td style="padding:7px 12px;font-size:11px;">${r.return_type || ''}</td>
-          <td style="padding:7px 12px;color:var(--c-muted);font-size:11px;">${r.rma_number || ''}</td>
-        </tr>
-        ${hasErr ? `
-        <tr style="background:var(--c-danger-bg); border-bottom:0.5px solid var(--c-border);">
-          <td colspan="8" style="padding:4px 12px 8px 32px; font-size:11px; color:var(--c-danger);">
-            ${r._errors.join(' · ')}
-          </td>
-        </tr>` : ''}
-      `;
-    }).join('');
-  }
-
-  async function _doImport() {
-    const btn = document.getElementById('imp-btn-import');
-    btn.disabled = true;
-    btn.textContent = 'Importando...';
-
-    const skipErrors    = document.getElementById('imp-opt-skip-errors').checked;
-    const createClients = document.getElementById('imp-opt-create-clients').checked;
-
-    let imported = 0;
-    let skipped  = 0;
-    let errors   = 0;
-
-    try {
-      if (createClients) {
-        const newClients = [...new Set(
-          _parsedRows
-            .filter(r => r._isNew && r.client_name)
-            .map(r => r.client_name)
-        )];
-        for (const name of newClients) {
-          const { data, error } = await _db.from('clients').insert({ name, country: 'MX' }).select('id, name').single();
-          if (!error && data) {
-            _clients[data.name.toUpperCase()] = data.id;
-            _parsedRows.forEach(r => { if (r.client_name === name) r._isNew = false; });
-          }
-        }
-      }
-
-      const BATCH = 50;
-      const rows  = _parsedRows.filter(r => skipErrors ? r._errors.length === 0 || !r._errors.some(e => !e.includes('nuevo')) : true);
-
-      for (let i = 0; i < rows.length; i += BATCH) {
-        const batch = rows.slice(i, i + BATCH);
-        const toInsert = [];
-
-        for (const r of batch) {
-          const clientId = _clients[r.client_name?.toUpperCase()];
-          if (!clientId) { skipped++; continue; }
-          if (r._errors.length > 0 && skipErrors) { skipped++; continue; }
-
-          toInsert.push({
-            request_date:        r.request_date,
-            requester_id:        _defaultUserId,
-            client_id:           clientId,
-            po_number:           r.po_number,
-            warehouse:           r.warehouse,
-            product_code:        r.product_code,
-            nc_code:             r.nc_code,
-            quantity:            r.quantity,
-            invoice_number:      r.invoice_number,
-            return_type:         r.return_type,
-            return_scope:        r.return_scope,
-            supply_comments:     r.supply_comments,
-            rma_number:          r.rma_number,
-            returned_amount:     r.returned_amount,
-            realization_date:    r.realization_date || null,
-            arrears:             r.arrears,
-            status:              r.status || 'pending_om',
-            specialist_comments: r.specialist_comments,
-            detail_notes:        r.detail_notes,
-          });
-        }
-
-        if (toInsert.length) {
-          const { error } = await _db.from('rma_requests').insert(toInsert);
-          if (error) {
-            console.error('Batch error:', error);
-            errors += toInsert.length;
-          } else {
-            imported += toInsert.length;
-          }
-        }
-      }
-
-    } catch (err) {
-      console.error('Import error:', err);
-    }
-
-    _showResult(imported, skipped, errors);
-    btn.disabled = false;
-    btn.textContent = 'Importar';
-  }
-
-  function _showResult(imported, skipped, errors) {
-    document.getElementById('imp-step-file').style.display    = 'none';
-    document.getElementById('imp-step-preview').style.display = 'none';
-    document.getElementById('imp-step-result').style.display  = 'block';
-
-    const icon   = document.getElementById('imp-result-icon');
-    const title  = document.getElementById('imp-result-title');
-    const detail = document.getElementById('imp-result-detail');
-
-    if (imported > 0) {
-      icon.textContent  = '✓';
-      icon.style.color  = 'var(--c-success)';
-      title.textContent = `${imported} solicitudes importadas`;
-      detail.innerHTML  = [
-        skipped  ? `${skipped} filas omitidas por errores` : '',
-        errors   ? `${errors} filas fallaron al insertar` : '',
-      ].filter(Boolean).join(' · ') || 'Importación completada sin problemas.';
-    } else {
-      icon.textContent  = '✗';
-      icon.style.color  = 'var(--c-danger)';
-      title.textContent = 'No se importó ninguna solicitud';
-      detail.textContent = `${skipped} filas omitidas · ${errors} errores de inserción`;
-    }
-
-    if (typeof loadRequests === 'function') loadRequests();
-    if (typeof loadKpis === 'function')     loadKpis();
-  }
-
-  function _reset() {
-    _parsedRows = [];
-    const fStep = document.getElementById('imp-step-file');
-    const pStep = document.getElementById('imp-step-preview');
-    const rStep = document.getElementById('imp-step-result');
-    if (fStep) fStep.style.display = 'block';
-    if (pStep) pStep.style.display = 'none';
-    if (rStep) rStep.style.display = 'none';
-    const fi = document.getElementById('imp-file-input');
-    if (fi) fi.value = '';
-  }
-
-  function _onDragOver(e) {
-    e.preventDefault();
-    const dz = document.getElementById('imp-dropzone');
-    dz.style.borderColor = 'var(--c-brand)';
-    dz.style.background  = 'var(--c-brand-bg)';
-  }
-
-  function _onDragLeave() {
-    const dz = document.getElementById('imp-dropzone');
-    dz.style.borderColor = 'var(--c-border2)';
-    dz.style.background  = '';
-  }
-
-  function _onDrop(e) {
-    e.preventDefault();
-    _onDragLeave();
-    const file = e.dataTransfer.files[0];
-    if (file) _parseFile(file);
-  }
-
-  function _onFileSelect(e) {
-    const file = e.target.files[0];
-    if (file) _parseFile(file);
-    e.target.value = '';
-  }
-
-  function _showError(msg) {
-    const el = document.getElementById('imp-errors');
-    if (el) { el.style.display = 'block'; el.textContent = msg; }
-  }
-
-  document.addEventListener('click', e => {
-    const modal = document.getElementById('import-modal');
-    if (modal && e.target === modal) close();
-  });
-
-  return { open, close, _onDragOver, _onDragLeave, _onDrop, _onFileSelect, _reset, _doImport };
-})();
-
-</script>
 </body>
 </html>
