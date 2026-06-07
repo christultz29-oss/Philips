@@ -1,0 +1,111 @@
+{
+  "name": "BO System — SLA Breach Real-Time Alert",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bo-sla-breach",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook — SLA Breach",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "bo-sla-breach",
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "n8n Webhook Secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Payload esperado desde Supabase Database Webhook:\n// { module, id, country, case_number, agent_name, aging_days, sla_status, status }\nconst body = $input.first().json.body;\n\nconst moduleNames = {\n  cancellation: 'RMA Cancellation',\n  credit_note: 'Credit Note',\n  refund: 'Refund Request'\n};\n\nconst slaEmoji = {\n  C_red: '🔴',\n  B_yellow: '🟡',\n  A_green: '🟢'\n};\n\nreturn [{\n  json: {\n    module_label: moduleNames[body.module] || body.module,\n    emoji: slaEmoji[body.sla_status] || '⚠️',\n    country: body.country,\n    case_number: body.case_number,\n    agent_name: body.agent_name,\n    aging_days: body.aging_days,\n    sla_status: body.sla_status,\n    status: body.status,\n    message: `${slaEmoji[body.sla_status]} *SLA BREACH — ${moduleNames[body.module]}*\\n\\n` +\n             `• País: ${body.country}\\n` +\n             `• Caso: \\`${body.case_number}\\`\\n` +\n             `• Agente: ${body.agent_name}\\n` +\n             `• Aging: *${body.aging_days} días* (meta: ≤5)\\n` +\n             `• Estado actual: ${body.status}\\n\\n` +\n             `_Requiere acción OLS inmediata_`\n  }\n}];"
+      },
+      "id": "format-breach",
+      "name": "Format Breach Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "post",
+        "channel": "={{ $env.SLACK_CHANNEL_BO_ALERTS }}",
+        "text": "={{ $json.message }}",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "id": "slack-breach",
+      "name": "Notify Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [680, 200],
+      "credentials": {
+        "slackOAuth2Api": {
+          "name": "Slack BO Alerts"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "bo-system@philips.com",
+        "toEmail": "={{ $env.OLS_EMAIL }}",
+        "subject": "🔴 SLA Breach — {{ $json.module_label }} | Case {{ $json.case_number }}",
+        "emailType": "html",
+        "message": "<h2 style='color:#ef4444'>SLA Breach Alert</h2><table style='border-collapse:collapse;width:100%'><tr><td style='padding:8px;border:1px solid #ddd'><strong>Module</strong></td><td style='padding:8px;border:1px solid #ddd'>{{ $json.module_label }}</td></tr><tr><td style='padding:8px;border:1px solid #ddd'><strong>Country</strong></td><td style='padding:8px;border:1px solid #ddd'>{{ $json.country }}</td></tr><tr><td style='padding:8px;border:1px solid #ddd'><strong>Case #</strong></td><td style='padding:8px;border:1px solid #ddd'>{{ $json.case_number }}</td></tr><tr><td style='padding:8px;border:1px solid #ddd'><strong>Agent</strong></td><td style='padding:8px;border:1px solid #ddd'>{{ $json.agent_name }}</td></tr><tr><td style='padding:8px;border:1px solid #ddd'><strong>Aging</strong></td><td style='padding:8px;border:1px solid #ddd;color:#ef4444'><strong>{{ $json.aging_days }} days</strong></td></tr><tr><td style='padding:8px;border:1px solid #ddd'><strong>Status</strong></td><td style='padding:8px;border:1px solid #ddd'>{{ $json.status }}</td></tr></table><p style='color:#6b7280;font-size:12px'>SLA target: ≤5 business days | Goal: 80% adherence</p>"
+      },
+      "id": "email-breach",
+      "name": "Email OLS",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [680, 400],
+      "credentials": {
+        "smtp": {
+          "name": "SMTP BO System"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"ok\": true }"
+      },
+      "id": "respond",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [900, 300]
+    }
+  ],
+  "connections": {
+    "Webhook — SLA Breach": {
+      "main": [
+        [{ "node": "Format Breach Alert", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Breach Alert": {
+      "main": [
+        [
+          { "node": "Notify Slack", "type": "main", "index": 0 },
+          { "node": "Email OLS", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Notify Slack": {
+      "main": [
+        [{ "node": "Respond OK", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": ["bo-system", "sla", "real-time"]
+}

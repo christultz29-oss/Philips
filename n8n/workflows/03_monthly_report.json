@@ -1,0 +1,149 @@
+{
+  "name": "BO System — Monthly KPI Report",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 1 * *"
+            }
+          ]
+        }
+      },
+      "id": "monthly-trigger",
+      "name": "1st of Every Month 8am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calcular el mes anterior\nconst now = new Date();\nnow.setMonth(now.getMonth() - 1);\nconst year = now.getFullYear();\nconst month = String(now.getMonth() + 1).padStart(2, '0');\n\nreturn [{\n  json: {\n    month: `${year}-${month}-01`,\n    month_label: now.toLocaleDateString('es-PA', { month: 'long', year: 'numeric' })\n  }\n}];"
+      },
+      "id": "calc-month",
+      "name": "Calculate Previous Month",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.get_bo_kpis('{{ $json.month }}'::date, null) as kpis;",
+        "options": {}
+      },
+      "id": "get-kpis",
+      "name": "Get Monthly KPIs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 200],
+      "credentials": {
+        "postgres": {
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM public.get_agent_performance('{{ $('Calculate Previous Month').item.json.month }}'::date, null) ORDER BY in_time_pct DESC;",
+        "options": {}
+      },
+      "id": "get-performance",
+      "name": "Get Agent Performance",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 420],
+      "credentials": {
+        "postgres": {
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "agents",
+        "include": "allFields"
+      },
+      "id": "agg-agents",
+      "name": "Aggregate Agents",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [900, 420]
+    },
+    {
+      "parameters": {
+        "jsCode": "const kpisRaw = $('Get Monthly KPIs').first().json.kpis;\nconst kpis = typeof kpisRaw === 'string' ? JSON.parse(kpisRaw) : kpisRaw;\nconst agents = $('Aggregate Agents').first().json.agents;\nconst monthLabel = $('Calculate Previous Month').first().json.month_label;\n\nconst slaGlobal = kpis.sla_global;\nconst slaOk = slaGlobal.achieved_pct >= 80;\nconst slaEmoji = slaOk ? '✅' : '❌';\n\n// Top 3 agents\nconst top3 = agents.slice(0, 3).map((a, i) => \n  `${['🥇','🥈','🥉'][i]} ${a.agent_name} — ${a.in_time_pct}% IT | ${a.total_cases} casos | avg ${a.avg_aging}d`\n).join('\\n');\n\nconst body = [\n  `📊 *Reporte Mensual BO System — ${monthLabel}*`,\n  '',\n  `${slaEmoji} *SLA Global: ${slaGlobal.achieved_pct}%* (meta: 80%)`,\n  '',\n  '*📋 RMA Cancellations*',\n  `   Total: ${kpis.cancellations.total} | Completados: ${kpis.cancellations.completed} | IT: ${kpis.cancellations.in_time_pct}%`,\n  '',\n  '*💳 Credit Notes*',\n  `   Total: ${kpis.credit_notes.total} | Monto: $${Number(kpis.credit_notes.total_amount).toLocaleString()} | IT: ${kpis.credit_notes.in_time_pct}%`,\n  '',\n  '*💰 Refunds*',\n  `   Total: ${kpis.refunds.total} | Monto: $${Number(kpis.refunds.total_amount).toLocaleString()} | IT: ${kpis.refunds.in_time_pct}%`,\n  '',\n  '*🏆 Top Agentes del Mes*',\n  top3,\n  '',\n  `_Generado automáticamente — BO System Philips_`\n].join('\\n');\n\nreturn [{ json: { body, month_label: monthLabel, kpis, sla_ok: slaOk } }];"
+      },
+      "id": "build-report",
+      "name": "Build Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "post",
+        "channel": "={{ $env.SLACK_CHANNEL_BO_REPORTS }}",
+        "text": "={{ $json.body }}",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "id": "slack-report",
+      "name": "Post Monthly Report to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [1320, 300],
+      "credentials": {
+        "slackOAuth2Api": {
+          "name": "Slack BO Alerts"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "1st of Every Month 8am": {
+      "main": [
+        [{ "node": "Calculate Previous Month", "type": "main", "index": 0 }]
+      ]
+    },
+    "Calculate Previous Month": {
+      "main": [
+        [
+          { "node": "Get Monthly KPIs", "type": "main", "index": 0 },
+          { "node": "Get Agent Performance", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Get Monthly KPIs": {
+      "main": [
+        [{ "node": "Build Report", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Agent Performance": {
+      "main": [
+        [{ "node": "Aggregate Agents", "type": "main", "index": 0 }]
+      ]
+    },
+    "Aggregate Agents": {
+      "main": [
+        [{ "node": "Build Report", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Report": {
+      "main": [
+        [{ "node": "Post Monthly Report to Slack", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": ["bo-system", "monthly", "report"]
+}

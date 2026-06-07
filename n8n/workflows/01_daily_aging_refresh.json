@@ -1,0 +1,176 @@
+{
+  "name": "BO System — Daily Aging Refresh",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Every Weekday 7am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.refresh_aging_daily();",
+        "options": {}
+      },
+      "id": "refresh-aging",
+      "name": "Refresh Aging Days",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [460, 300],
+      "credentials": {
+        "postgres": {
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM public.get_critical_cases() ORDER BY aging_days DESC;",
+        "options": {}
+      },
+      "id": "get-critical",
+      "name": "Get Critical Cases",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 300],
+      "credentials": {
+        "postgres": {
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-critical",
+              "leftValue": "={{ $json.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "check-critical",
+      "name": "Has Critical Cases?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "cases",
+        "include": "allFields"
+      },
+      "id": "aggregate-cases",
+      "name": "Aggregate Cases",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cases = $input.first().json.cases;\n\nconst rows = cases.map(c => {\n  const emoji = c.aging_days > 10 ? '🔴🔴' : '🔴';\n  return `${emoji} *${c.module.toUpperCase()}* | ${c.country} | Case: ${c.case_number} | Agent: ${c.agent_name} | Aging: *${c.aging_days} days* | Status: ${c.status}`;\n}).join('\\n');\n\nreturn [{\n  json: {\n    summary: `⚠️ *BO Critical Cases Alert — ${new Date().toLocaleDateString('es-PA')}*\\n\\n${cases.length} caso(s) con SLA en ROJO requieren atención inmediata:\\n\\n${rows}\\n\\n_Meta SLA: 80% in-time | Ver dashboard para detalles_`\n  }\n}];"
+      },
+      "id": "format-message",
+      "name": "Format Alert Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "post",
+        "channel": "={{ $env.SLACK_CHANNEL_BO_ALERTS }}",
+        "text": "={{ $json.summary }}",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "id": "slack-alert",
+      "name": "Send Slack Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [1560, 200],
+      "credentials": {
+        "slackOAuth2Api": {
+          "name": "Slack BO Alerts"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "No critical cases today ✅"
+      },
+      "id": "no-critical",
+      "name": "No Critical Cases",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1120, 400]
+    }
+  ],
+  "connections": {
+    "Every Weekday 7am": {
+      "main": [
+        [{ "node": "Refresh Aging Days", "type": "main", "index": 0 }]
+      ]
+    },
+    "Refresh Aging Days": {
+      "main": [
+        [{ "node": "Get Critical Cases", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Critical Cases": {
+      "main": [
+        [{ "node": "Has Critical Cases?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Has Critical Cases?": {
+      "main": [
+        [{ "node": "Aggregate Cases", "type": "main", "index": 0 }],
+        [{ "node": "No Critical Cases", "type": "main", "index": 0 }]
+      ]
+    },
+    "Aggregate Cases": {
+      "main": [
+        [{ "node": "Format Alert Message", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Alert Message": {
+      "main": [
+        [{ "node": "Send Slack Alert", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": ["bo-system", "sla", "daily"]
+}
